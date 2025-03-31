@@ -268,7 +268,8 @@ class ActiveLearning:
                   method=self.calculator,
                   output_dir=self.output_dir,
                   template_dir=self.template_dir)
-        trainer.prepare_and_submit_mlff()
+        n_models = getattr(self.mace_calc, "num_models", 1)
+        trainer.prepare_and_submit_mlff(n_models=n_models)
 
     def run(self):
         """Executes the entire Active Learning pipeline."""
