@@ -34,6 +34,7 @@ class ActiveLearning:
         self.plot_std_dev = args.plot_std_dev
         self.sample_percentage = args.sample_percentage
         self.training_data = args.training_data_dir
+        self.max_al_iter = args.max_al_iter
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -271,17 +272,49 @@ class ActiveLearning:
         n_models = getattr(self.mace_calc, "num_models", 1)
         trainer.prepare_and_submit_mlff(n_models=n_models)
 
-    def run(self):
-        """Executes the entire Active Learning pipeline."""
+    def run(self, max_iterations=10):
+        """
+        Executes the Active Learning pipeline iteratively.
+        Stops early if no high-uncertainty structures are found.
+
+        Parameters:
+        - max_iterations (int): Maximum number of active learning iterations.
+        """
+        # Initial dataset load
         sampled_atoms, remaining_atoms = self.load_data()
-        sampled_atoms = self.calculate_energies_forces(sampled_atoms)
-        std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms)
-        filtered_atoms_list = self.filter_high_deviation_structures(std_dev,std_dev_forces,sampled_atoms)
-        self.generate_dft_inputs(filtered_atoms_list)
-        self.launch_dft_calcs()
-        new_atoms = self.parse_outputs()
-        training_atoms = self.parse_training_data()
-        all_atoms = new_atoms + training_atoms
-        self.mlff_train(all_atoms)
-        #TODO re-run
+
+        for iteration in range(1, max_iterations + 1):
+            logging.info(f"Active Learning Iteration {iteration}/{max_iterations}")
+
+            # Evaluate uncertainty with current model
+            sampled_atoms = self.calculate_energies_forces(sampled_atoms)
+            std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms)
+
+            # Filter structures based on uncertainty
+            filtered_atoms_list = self.filter_high_deviation_structures(
+                std_dev, std_dev_forces, sampled_atoms
+            )
+
+            if not filtered_atoms_list:
+                logging.info("No new high-uncertainty structures found. Stopping AL loop.")
+                break
+
+            # Generate and run DFT calculations for selected structures
+            self.generate_dft_inputs(filtered_atoms_list)
+            self.launch_dft_calcs()
+
+            # Parse DFT results and update training pool
+            new_atoms = self.parse_outputs()
+            training_atoms = self.parse_training_data()
+            all_atoms = new_atoms + training_atoms
+
+            # Update the MLFF model
+            self.mlff_train(all_atoms)
+
+            # Move newly labeled atoms to sampled_atoms
+            sampled_atoms += filtered_atoms_list
+
+            # Remove them from the pool of remaining_atoms
+            remaining_atoms = [atom for atom in remaining_atoms if atom not in filtered_atoms_list]
+
         logging.info("Active Learning process completed.")
