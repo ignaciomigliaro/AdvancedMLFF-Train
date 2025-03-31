@@ -27,21 +27,29 @@ class MLFFTrain:
         self.template_dir = template_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def prepare_and_submit_mlff(self):
+    def prepare_and_submit_mlff(self, n_models=1):
         """
-        Prepares training data and submits the MLFF training job.
-        Dispatches logic based on selected MLFF method.
+        Prepares training data and submits one or more MLFF training jobs.
+        For multiple models, unique directories and config names are used.
+        
+        Parameters:
+        - n_models (int): Number of models to train (for committee/active learning)
         """
-        if self.method == "mace":
-            files = self._write_mace_xyz_split()
+        if self.method != "mace":
+            raise NotImplementedError(f"MLFF method '{self.method}' is not implemented yet.")
+
+        files = self._write_mace_xyz_split()
+
+        for i in range(n_models):
+            model_name = f"model_{i}"
             yaml_file = self.create_mace_yaml(
                 train_file=files["train_file"],
-                test_file=files["test_file"]
+                test_file=files["test_file"],
+                yaml_filename=f"mace_input_{i}.yaml",
+                model_name=model_name
             )
-            logging.info(f"Submitting File in {yaml_file}")
+            logging.info(f"Submitting training job for {model_name} with config {yaml_file}")
             self.submit_training_job(yaml_file)
-        else:
-            raise NotImplementedError(f"MLFF method '{self.method}' is not implemented yet.")
 
     def _write_mace_xyz_split(self):
         """
@@ -76,6 +84,7 @@ class MLFFTrain:
         Returns:
         - str: Path to the created YAML config file.
         """
+
         template_path = os.path.join(self.template_dir, template_file)
         yaml_path = os.path.join(self.template_dir, yaml_filename)
 
@@ -87,9 +96,9 @@ class MLFFTrain:
             config = yaml.safe_load(f)
 
         # Define hardcoded subdirectories
-        model_dir = os.path.join(self.output_dir, "models")
-        log_dir = os.path.join(self.output_dir, "logs")
-        checkpoints_dir = os.path.join(self.output_dir, "checkpoints")
+        model_dir = os.path.join(self.output_dir, "models", model_name)
+        log_dir = os.path.join(self.output_dir, "logs", model_name)
+        checkpoints_dir = os.path.join(self.output_dir, "checkpoints", model_name)
 
         # Make sure those subdirectories exist
         os.makedirs(model_dir, exist_ok=True)
