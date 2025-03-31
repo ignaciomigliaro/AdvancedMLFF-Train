@@ -61,44 +61,59 @@ class MLFFTrain:
 
         return {"train_file": train_file, "test_file": test_file}
     
-    def create_mace_yaml(self, train_file, test_file, yaml_filename="mace_input.yaml", model_name="mace_model"):
+    def create_mace_yaml(self, train_file, test_file, yaml_filename="mace_input.yaml", model_name="mace_model", template_file="mace_template.yaml"):
         """
-        Creates a new MACE YAML configuration in the template_dir,
-        pointing to the train/test files in output_dir.
+        Creates a MACE YAML configuration file by loading a template and updating key values.
+        The model_dir, log_dir, and checkpoints_dir are hardcoded subdirectories inside output_dir.
 
         Parameters:
-        - yaml_filename (str): Name of the YAML file to create.
-        - model_name (str): Optional model name used for directories.
+        - train_file (str): Path to the training XYZ file.
+        - test_file (str): Path to the test XYZ file.
+        - yaml_filename (str): Name of the new YAML file to be created.
+        - model_name (str): Name of the model.
+        - template_file (str): Template YAML file to load from template_dir.
 
         Returns:
         - str: Path to the created YAML config file.
         """
+        template_path = os.path.join(self.template_dir, template_file)
         yaml_path = os.path.join(self.template_dir, yaml_filename)
-        logging.info(f"Creating YAML file in {yaml_path}.")
-        config = {
+
+        if not os.path.exists(template_path):
+            logging.error(f"Template file not found: {template_path}")
+            return None
+
+        with open(template_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        # Define hardcoded subdirectories
+        model_dir = os.path.join(self.output_dir, "models")
+        log_dir = os.path.join(self.output_dir, "logs")
+        checkpoints_dir = os.path.join(self.output_dir, "checkpoints")
+
+        # Make sure those subdirectories exist
+        os.makedirs(model_dir, exist_ok=True)
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(checkpoints_dir, exist_ok=True)
+
+        # Update key values, hardcoding model paths
+        config.update({
             "name": model_name,
-            "model_dir": self.output_dir,
-            "log_dir": self.output_dir,
-            "checkpoints_dir": self.output_dir,
-            "train_file": os.path.join(self.output_dir, "train.xyz"),
-            "test_file": os.path.join(self.output_dir, "test.xyz"),
-            "energy_key": "dft_energy",
-            "forces_key": "dft_forces",
-            "swa": True,
-            "max_num_epochs": 50,
-            "batch_size": 10,
-            "device": "cuda",
-            "E0s": "average",
-            "valid_fraction": 0.05,
-            "save_cpu": True,
-        }
+            "train_file": train_file,
+            "test_file": test_file,
+            "model_dir": model_dir,
+            "log_dir": log_dir,
+            "checkpoints_dir": checkpoints_dir,
+        })
 
         os.makedirs(self.template_dir, exist_ok=True)
         with open(yaml_path, "w") as f:
             yaml.safe_dump(config, f)
 
-        logging.info(f"Created MACE config: {yaml_path}")
+        logging.info(f"Created MACE config from template: {yaml_path}")
         return yaml_path
+
+
 
     def submit_training_job(self, yaml_path, slurm_name="mlff_train.slurm"):
         """
