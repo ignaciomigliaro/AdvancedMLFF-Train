@@ -31,18 +31,28 @@ class Filesubmit:
             logging.error(f"Error retrieving SLURM jobs: {e}")
             return set()
 
-    def _submit_job(self, script_path):
+    def _submit_job(self, script_path, *extra_args):
         """
         Submit a single SLURM job and return its job ID.
+
+        Parameters:
+        - script_path (str): Path to the SLURM script.
+        - *extra_args: Any additional arguments to pass to sbatch (e.g., config files).
+
+        Returns:
+        - str or None: The submitted SLURM job ID or None on failure.
         """
-        result = subprocess.run(["sbatch", script_path], capture_output=True, text=True)
+        cmd = ["sbatch", script_path] + list(extra_args)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             job_id = result.stdout.strip().split()[-1]
-            logging.info(f"Submitted {script_path} → Job ID: {job_id}")
+            logging.info(f"Submitted {script_path} {' '.join(extra_args)} → Job ID: {job_id}")
             return job_id
         else:
             logging.error(f"Failed to submit {script_path}: {result.stderr}")
             return None
+
 
     def _find_slurm_scripts(self):
         """

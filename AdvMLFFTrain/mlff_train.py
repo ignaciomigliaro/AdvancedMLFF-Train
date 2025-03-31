@@ -127,7 +127,7 @@ class MLFFTrain:
     def submit_training_job(self, yaml_path, slurm_name="mlff_train.slurm"):
         """
         Submit SLURM job using the YAML config and SLURM script from template_dir.
-        Ensures correct working directory for relative paths.
+        Uses Filesubmit._submit_job but ensures cwd is template_dir during sbatch call.
         """
         slurm_script_path = os.path.join(self.template_dir, slurm_name)
 
@@ -138,18 +138,18 @@ class MLFFTrain:
             logging.error(f"SLURM script not found: {slurm_script_path}")
             return None
 
-        # Change directory to where SLURM will run from
+        submitter = Filesubmit(job_dir=self.template_dir)
+
+        # Use template_dir as the working directory
         cwd = os.getcwd()
         os.chdir(self.template_dir)
 
         try:
-            logging.info(f"Submitting SLURM job from {self.template_dir}: {slurm_name}")
-            result = subprocess.run(["sbatch", slurm_name], check=True, capture_output=True, text=True)
-            job_id = result.stdout.strip().split()[-1]
-            logging.info(f"SLURM job submitted: Job ID {job_id}")
+            logging.info(f"Submitting SLURM job: {slurm_script_path} with config {yaml_path}")
+            job_id = submitter._submit_job(slurm_script_path, yaml_path)
             return job_id
-        except subprocess.CalledProcessError as e:
-            logging.error(f" Failed to submit SLURM job: {e.stderr}")
+        except Exception as e:
+            logging.error(f"Submission failed: {e}")
             return None
         finally:
             os.chdir(cwd)
