@@ -10,8 +10,6 @@ import torch
 
 torch.set_default_dtype(torch.float64)
 
-
-
 class MaceCalc:
     """Handles loading MACE models and performing energy & force calculations."""
 

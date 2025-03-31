@@ -1,6 +1,6 @@
 import os
 import logging
-from ase.io import write
+from ase.io import read,write
 import numpy as np 
 from ase import Atoms
 
@@ -318,11 +318,11 @@ class DFTOutputParser:
 
             # Attach energy and forces
             if energy is not None:
-                atoms.info['energy'] = energy
+                atoms.info['dft_energy'] = energy
 
             # Ensure forces are added even if there’s a mismatch
             if forces.size > 0:
-                atoms.info['forces'] = forces
+                atoms.arrays['dft_forces'] = forces
             else:
                 print(f"Warning: No forces extracted or mismatch in count for {file_path}")
 

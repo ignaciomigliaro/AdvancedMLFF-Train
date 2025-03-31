@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from AdvMLFFTrain.file_submit import Filesubmit
+from AdvMLFFTrain.mlff_train import MLFFTrain
 
 class ActiveLearning:
     """Handles the active learning pipeline for MACE MLFF models."""
@@ -262,7 +263,13 @@ class ActiveLearning:
         parser = DFTOutputParser(output_dir=self.training_data, dft_software=self.dft_software)
         return parser.parse_outputs()
 
-    
+    def mlff_train(self,atoms_list):
+        trainer = MLFFTrain(atoms_list=atoms_list,
+                  method=self.calculator,
+                  output_dir=self.output_dir,
+                  template_dir=self.template_dir)
+        trainer.prepare_and_submit_mlff()
+
     def run(self):
         """Executes the entire Active Learning pipeline."""
         sampled_atoms, remaining_atoms = self.load_data()
@@ -274,6 +281,6 @@ class ActiveLearning:
         new_atoms = self.parse_outputs()
         training_atoms = self.parse_training_data()
         all_atoms = new_atoms + training_atoms
-        #TODO retrain mlff
+        self.mlff_train(all_atoms)
         #TODO re-run
         logging.info("Active Learning process completed.")
