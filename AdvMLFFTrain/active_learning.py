@@ -281,6 +281,6 @@ class ActiveLearning:
         new_atoms = self.parse_outputs()
         training_atoms = self.parse_training_data()
         all_atoms = new_atoms + training_atoms
-        self.mlff_train()
+        self.mlff_train(all_atoms)
         #TODO re-run
         logging.info("Active Learning process completed.")
