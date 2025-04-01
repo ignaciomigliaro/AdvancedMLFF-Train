@@ -156,8 +156,8 @@ class ActiveLearning:
 
             for model_index in range(n_models):
                 atoms = atoms_lists_per_model[model_index][i]
-                energy_values.append(atoms.info.get("energy"))
-                force_values.append(atoms.arrays.get("forces"))
+                energy_values.append(atoms.info.get("MACE_energy"))
+                force_values.append(atoms.arrays.get("MACE_forces"))
 
             std_energy.append(np.std(energy_values))
             std_dev_forces.append(np.mean(np.std(force_values, axis=0)))
