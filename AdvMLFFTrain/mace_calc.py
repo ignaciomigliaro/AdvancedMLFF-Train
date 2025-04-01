@@ -123,6 +123,7 @@ class MaceCalc:
         content = content.replace("{input_file}", input_file)
         content = content.replace("{output_file}", output_file)
         content = content.replace("{model_path}", model_path)
+        content = content.replace("{workdir}", self.output_dir)
 
         with open(output_path, "w") as f:
             f.write(content)
