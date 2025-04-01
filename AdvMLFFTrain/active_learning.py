@@ -131,53 +131,42 @@ class ActiveLearning:
         return all_atoms_lists
 
 
-    def calculate_std_dev(self, sampled_atoms):
+    def calculate_std_dev(self, atoms_lists_per_model):
         """
-        Calculate the standard deviation of energies and forces for each atomic configuration
-        in the active learning set (Query by Committee).
-
-        Parameters:
-        - cache_file (str, optional): Path to save computed energy values, forces, and deviations.
-
-        Returns:
-        - std_energy (list): Standard deviation of energies per configuration.
-        - std_dev_forces (list): Standard deviation of forces per atom in each configuration.
-        - energy_values (list): Computed energy values.
-        - force_values (list): Computed force values.
+        Calculate standard deviation of energies and forces using Query by Committee.
+        Input is a list of atoms_lists, one per model.
         """
-        
-        logging.info("Calculating standard deviations for energies and forces.")
+        logging.info("Calculating standard deviations from multiple models.")
 
-        if not sampled_atoms:
-            logging.error("No configurations available to compute standard deviation.")
-            return None, None, None, None
+        if not atoms_lists_per_model or len(atoms_lists_per_model) < 2:
+            logging.error("Need multiple model outputs to compute standard deviation.")
+            return None, None
+
+        n_structures = len(atoms_lists_per_model[0])
+        n_models = len(atoms_lists_per_model)
 
         std_energy = []
         std_dev_forces = []
 
-        progress = tqdm(total=len(sampled_atoms), desc="Processing Energies and Forces")
+        progress = tqdm(total=n_structures, desc="Computing Std. Dev.")
 
-        for atoms in sampled_atoms:
-            # Extract energy values from different models
-            energy_values = atoms.info["MACE_energy"]  # Should be a list of 3 values (one per model)
-            std_energy.append(np.std(energy_values))  # Compute standard deviation of energies
+        for i in range(n_structures):
+            energy_values = []
+            force_values = []
 
-            # Extract forces from different models
-            force_values = np.array(atoms.arrays["MACE_forces"])  # Shape: (3, N_atoms, 3)
+            for model_index in range(n_models):
+                atoms = atoms_lists_per_model[model_index][i]
+                energy_values.append(atoms.info.get("energy"))
+                force_values.append(atoms.arrays.get("forces"))
 
-            # Compute standard deviation of forces across models for each atom
-            std_dev_atom_forces = np.std(force_values, axis=0)  # Shape: (N_atoms, 3)
-            std_dev_forces.append(np.mean(std_dev_atom_forces))  # Mean over all atoms and directions
+            std_energy.append(np.std(energy_values))
+            std_dev_forces.append(np.mean(np.std(force_values, axis=0)))
 
             progress.update(1)
 
         progress.close()
 
-        #self.std_dev = std_energy
-        #self.std_dev_forces = std_dev_forces  # This is now correctly computed
-
-        logging.info("Standard deviations calculated for all configurations.")
-
+        logging.info("Standard deviations calculated.")
         return std_energy, std_dev_forces
 
     def filter_high_deviation_structures(self,std_dev,std_dev_forces,sampled_atoms,percentile=90):
@@ -308,35 +297,39 @@ class ActiveLearning:
         for iteration in range(1, max_iterations + 1):
             logging.info(f"Active Learning Iteration {iteration}/{max_iterations}")
 
-            # Evaluate uncertainty with current model
-            sampled_atoms = self.calculate_energies_forces(sampled_atoms, iteration)
-            std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms)
+            # === STEP 1: SLURM inference for all models ===
+            sampled_atoms_model_lists = self.calculate_energies_forces(sampled_atoms, iteration)
 
-            # Filter structures based on uncertainty
+            # === STEP 2: Compute std. deviation (energy & forces) across models ===
+            std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms_model_lists)
+
+            # === STEP 3: Filter high-uncertainty structures ===
             filtered_atoms_list = self.filter_high_deviation_structures(
-                std_dev, std_dev_forces, sampled_atoms
+                std_dev,
+                std_dev_forces,
+                sampled_atoms_model_lists[0],  # Use model_0 as reference
+                percentile=90
             )
 
             if not filtered_atoms_list:
                 logging.info("No new high-uncertainty structures found. Stopping AL loop.")
                 break
 
-            # Generate and run DFT calculations for selected structures
+            # === STEP 4: Run DFT on filtered structures ===
             self.generate_dft_inputs(filtered_atoms_list)
             self.launch_dft_calcs()
 
-            # Parse DFT results and update training pool
+            # === STEP 5: Parse DFT outputs and combine with existing training data ===
             new_atoms = self.parse_outputs()
             training_atoms = self.parse_training_data()
             all_atoms = new_atoms + training_atoms
 
-            # Update the MLFF model
+            # === STEP 6: Retrain MLFF models ===
             self.mlff_train(all_atoms)
 
-            # Move newly labeled atoms to sampled_atoms
+            # === STEP 7: Update sampled & remaining pools ===
             sampled_atoms += filtered_atoms_list
-
-            # Remove them from the pool of remaining_atoms
             remaining_atoms = [atom for atom in remaining_atoms if atom not in filtered_atoms_list]
 
         logging.info("Active Learning process completed.")
+
