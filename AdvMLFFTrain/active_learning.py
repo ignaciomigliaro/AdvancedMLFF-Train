@@ -95,11 +95,18 @@ class ActiveLearning:
     def calculate_energies_forces(self, sampled_atoms, iteration):
         """
         Run SLURM-based evaluation of all MACE models on the same structure set.
-        Returns a list of atoms_list per model.
+        Returns a list of atoms_list per model: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
         """
         input_xyz = f"eval_input_iter_{iteration}.xyz"
+        input_xyz_path = os.path.join(self.mace_calc.output_dir, input_xyz)
+
         logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
 
+        # Always write input_xyz (safe even if already exists)
+        from ase.io import write
+        write(input_xyz_path, sampled_atoms)
+
+        # Submit one job per model
         for model_index in range(self.mace_calc.num_models):
             self.mace_calc.submit_mace_eval_job(
                 atoms_list=sampled_atoms,
@@ -109,9 +116,9 @@ class ActiveLearning:
                 slurm_template="slurm_template_mace_eval.slurm"
             )
 
-        # Wait for all jobs to finish
+        # Wait for all jobs to complete
         submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
-        submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models+1)
+        submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models + 1)
 
         # Load evaluated atoms from each model
         all_atoms_lists = []
@@ -120,7 +127,9 @@ class ActiveLearning:
             atoms_list = self.mace_calc.load_evaluated_results(evaluated_file)
             all_atoms_lists.append(atoms_list)
 
+        logging.info(f"AL Iteration {iteration}: Loaded inference results for all models.")
         return all_atoms_lists
+
 
     def calculate_std_dev(self, sampled_atoms):
         """
