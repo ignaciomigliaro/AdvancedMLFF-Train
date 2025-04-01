@@ -92,22 +92,35 @@ class ActiveLearning:
         logging.info(f"Loaded {len(sampled_atoms)} configurations.")
         return sampled_atoms, remaining_atoms
 
-    def calculate_energies_forces(self,sampled_atoms):
-        """Assigns MACE calculators and computes energies & forces."""
-        
-        logging.info(f"Running MACE calculations on {len(sampled_atoms)} configurations.")
+    def calculate_energies_forces(self, sampled_atoms, iteration):
+        """
+        Run SLURM-based evaluation of all MACE models on the same structure set.
+        Returns a list of atoms_list per model.
+        """
+        input_xyz = f"eval_input_iter_{iteration}.xyz"
+        logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
 
-        # Compute energies and forces using MACE
-        sampled_atoms = self.mace_calc.calculate_energy_forces(sampled_atoms)
+        for model_index in range(self.mace_calc.num_models):
+            self.mace_calc.submit_mace_eval_job(
+                atoms_list=sampled_atoms,
+                model_index=model_index,
+                job_name=f"mace_eval_iter_{iteration}_model_{model_index}",
+                xyz_name=input_xyz,
+                slurm_template="slurm_template_mace_eval.slurm"
+            )
 
-        # Check if calculations were successful
-        if not sampled_atoms or any("mace_energy" not in atoms.info or "mace_forces" not in atoms.info for atoms in sampled_atoms):
-            logging.error("MACE calculations failed for some or all configurations.")
-            return
+        # Wait for all jobs to finish
+        submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
+        submitter.run_all_jobs(max_concurrent=1)
 
-        logging.info("Successfully computed energies and forces with MACE.")
+        # Load evaluated atoms from each model
+        all_atoms_lists = []
+        for model_index in range(self.mace_calc.num_models):
+            evaluated_file = f"evaluated_{input_xyz}".replace(".xyz", f"_model_{model_index}.xyz")
+            atoms_list = self.mace_calc.load_evaluated_results(evaluated_file)
+            all_atoms_lists.append(atoms_list)
 
-        return sampled_atoms
+        return all_atoms_lists
 
     def calculate_std_dev(self, sampled_atoms):
         """
