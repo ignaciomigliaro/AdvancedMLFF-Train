@@ -159,11 +159,11 @@ class ActiveLearning:
 
         for atoms in sampled_atoms:
             # Extract energy values from different models
-            energy_values = atoms.info["mace_energy"]  # Should be a list of 3 values (one per model)
+            energy_values = atoms.info["MACE_energy"]  # Should be a list of 3 values (one per model)
             std_energy.append(np.std(energy_values))  # Compute standard deviation of energies
 
             # Extract forces from different models
-            force_values = np.array(atoms.info["mace_forces"])  # Shape: (3, N_atoms, 3)
+            force_values = np.array(atoms.info["MACE_forces"])  # Shape: (3, N_atoms, 3)
 
             # Compute standard deviation of forces across models for each atom
             std_dev_atom_forces = np.std(force_values, axis=0)  # Shape: (N_atoms, 3)
