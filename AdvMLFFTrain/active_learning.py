@@ -130,7 +130,7 @@ class ActiveLearning:
         logging.info(f"AL Iteration {iteration}: Loaded inference results for all models.")
         return all_atoms_lists
 
-
+    #TODO Create a filtering class.
     def calculate_std_dev(self, atoms_lists_per_model):
         """
         Calculate standard deviation of energies and forces using Query by Committee.
