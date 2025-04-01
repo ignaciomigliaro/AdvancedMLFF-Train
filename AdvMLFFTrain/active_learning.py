@@ -300,7 +300,7 @@ class ActiveLearning:
             logging.info(f"Active Learning Iteration {iteration}/{max_iterations}")
 
             # Evaluate uncertainty with current model
-            sampled_atoms = self.calculate_energies_forces(sampled_atoms)
+            sampled_atoms = self.calculate_energies_forces(sampled_atoms, iteration)
             std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms)
 
             # Filter structures based on uncertainty
