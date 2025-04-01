@@ -111,7 +111,7 @@ class ActiveLearning:
 
         # Wait for all jobs to finish
         submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
-        submitter.run_all_jobs(max_concurrent=1)
+        submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models+1)
 
         # Load evaluated atoms from each model
         all_atoms_lists = []
