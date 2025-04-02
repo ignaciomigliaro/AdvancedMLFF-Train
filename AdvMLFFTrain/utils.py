@@ -3,7 +3,6 @@ import os
 import logging
 from ase.io import read
 import numpy as np 
-from ase import Atoms
 import random
 
 def parse_args():
@@ -67,100 +66,6 @@ def get_configurations(filepath,percentage=10):
     sampled_atoms, remaining_atoms = random_sampling(configurations, percentage)
     return sampled_atoms, remaining_atoms
 
-def parse_orca_to_ase(file_path):
-    """
-    Parses an ORCA output file and returns an ASE Atoms object with:
-    - Atomic symbols
-    - Positions (Angstroms)
-    - Forces (eV/Å) (without negation)
-    - Total energy (eV)
 
-    Parameters:
-        file_path (str): Path to the ORCA output file.
-
-    Returns:
-        Atoms: ASE Atoms object with energy and forces.
-    """
-    energy = None
-    forces = []
-    positions = []
-    elements = []
-
-    with open(file_path, 'r') as file:
-        lines = file.readlines()
-
-        # Extract final total energy (Hartree)
-        for line in lines:
-            if 'FINAL SINGLE POINT ENERGY' in line:
-                energy = float(line.split()[-1]) * 27.2114  # Convert to eV
-
-        # Extract atomic positions & elements from "CARTESIAN COORDINATES"
-        in_positions_section = False
-        for i, line in enumerate(lines):
-            if 'CARTESIAN COORDINATES (ANGSTROEM)' in line:
-                in_positions_section = True
-                continue  # Skip header line
-
-            if in_positions_section:
-                if line.strip() == "":  # End of positions section
-                    break
-                data = line.split()
-                if len(data) == 4:
-                    elements.append(data[0])  # Store atomic symbol
-                    positions.append([float(data[1]), float(data[2]), float(data[3])])  # Store atomic positions
-
-        # Extract Cartesian gradients (forces in Hartree/Bohr)
-        in_forces_section = False
-        skip_lines = 2  # Number of lines to skip after "CARTESIAN GRADIENT"
-
-        for line in lines:
-            if "CARTESIAN GRADIENT" in line:
-                in_forces_section = True
-                skip_lines = 2  # Reset the skip counter
-                continue
-
-            if in_forces_section:
-                if skip_lines > 0:
-                    skip_lines -= 1  # Skip the next two lines
-                    continue
-
-                if line.strip() == "":  # Stop when a blank line is encountered
-                    break
-                
-                data = line.split()
-                if len(data) >= 6 and data[2] == ":":  # Ensure correct parsing
-                    try:
-                        forces.append([
-                            float(data[3]),  # X force
-                            float(data[4]),  # Y force
-                            float(data[5])   # Z force
-                        ])
-                    except ValueError:
-                        break  # Stop if we encounter non-numeric data
-
-        # Convert lists to numpy arrays, ensuring they are never None
-        positions = np.array(positions) if positions else np.array([])
-        forces = np.array(forces) * 51.422 if forces else np.array([])  # Convert Hartree/Bohr to eV/Å
-        # Debugging print: Check lengths
-        print(f"Positions: {len(positions) if positions.size else 0} | Forces: {len(forces) if forces.size else 0}")
-
-        # Validate if element and position lists are the same length
-        if len(elements) != len(positions):
-            raise ValueError(f"Mismatch in element count ({len(elements)}) and position count ({len(positions)}).")
-
-        # Create ASE Atoms object
-        atoms = Atoms(symbols=elements, positions=positions)
-
-        # Attach energy and forces
-        if energy is not None:
-            atoms.info['energy'] = energy
-
-        # Ensure forces are added even if there’s a mismatch
-        if forces.size > 0:
-            atoms.info['forces'] = forces
-        else:
-            print(f"Warning: No forces extracted or mismatch in count for {file_path}")
-
-        return atoms
     
     

@@ -1,6 +1,8 @@
 import os
 import logging
-from ase.io import write
+from ase.io import read,write
+import numpy as np 
+from ase import Atoms
 
 class DFTInputGenerator:
     """Generates DFT input files for ORCA and Quantum ESPRESSO (QE)."""
@@ -184,8 +186,55 @@ class DFTInputGenerator:
             file.write(slurm_content)
 
         logging.info(f"Created SLURM script: {output_path}")
+   
+class DFTOutputParser:
+    """
+    Parses output files from ORCA and Quantum ESPRESSO (QE).
+    Extracts energy, forces, and final structure.
+    """
 
-    def parse_orca_to_ase(file_path):
+    def __init__(self,output_dir,dft_software):
+        """
+        Initializes the DFTOutputParser.
+
+        Parameters:
+        - output_dir (str): Directory where output files are located.
+        - dft_software (str): Either 'orca' or 'qe'.
+        """
+        self.output_dir = output_dir
+        self.dft_software = dft_software.lower()
+
+    def parse_outputs(self):
+        """
+        Parses all DFT output files in the directory (excluding SLURM and non-.out files).
+        Gracefully handles errors in file parsing.
+
+        Returns:
+        - results (list of dict): Each dict contains 'filename', 'energy', 'forces', and 'atoms'.
+        """
+        results = []
+
+        for file in os.listdir(self.output_dir):
+            if file.endswith(".out") and not file.startswith("slurm") and not file.endswith(".pw.out"):
+                full_path = os.path.join(self.output_dir, file)
+
+                try:
+                    if self.dft_software == "orca":
+                        result = self._parse_orca_to_ase(full_path)
+                    elif self.dft_software == "qe":
+                        result = self._parse_qe_output(full_path)
+                    else:
+                        raise ValueError(f"Unsupported DFT software: {self.dft_software}")
+
+                    if result:
+                        results.append(result)
+
+                except Exception as e:
+                    logging.warning(f"Failed to parse {file}: {e}")
+
+        return results
+
+    def _parse_orca_to_ase(self,file_path):
         """
         Parses an ORCA output file and returns an ASE Atoms object with:
         - Atomic symbols
@@ -259,9 +308,7 @@ class DFTInputGenerator:
             # Convert lists to numpy arrays, ensuring they are never None
             positions = np.array(positions) if positions else np.array([])
             forces = np.array(forces) * 51.422 if forces else np.array([])  # Convert Hartree/Bohr to eV/Å
-            # Debugging print: Check lengths
-            print(f"Positions: {len(positions) if positions.size else 0} | Forces: {len(forces) if forces.size else 0}")
-
+           
             # Validate if element and position lists are the same length
             if len(elements) != len(positions):
                 raise ValueError(f"Mismatch in element count ({len(elements)}) and position count ({len(positions)}).")
@@ -271,12 +318,30 @@ class DFTInputGenerator:
 
             # Attach energy and forces
             if energy is not None:
-                atoms.info['energy'] = energy
+                atoms.info['dft_energy'] = energy
 
             # Ensure forces are added even if there’s a mismatch
             if forces.size > 0:
-                atoms.info['forces'] = forces
+                atoms.arrays['dft_forces'] = forces
             else:
                 print(f"Warning: No forces extracted or mismatch in count for {file_path}")
 
             return atoms
+
+    def _parse_qe_output(self, filepath):
+        """
+        Parses a single QE output file using ASE's read function.
+
+        Returns:
+        - dict: Parsed data with energy, forces, and ASE Atoms object.
+        """
+        try:
+            atoms = read(filepath, format="espresso-out")
+            energy = atoms.get_potential_energy()
+            forces = atoms.get_forces()
+
+            return atoms
+
+        except Exception as e:
+            logging.warning(f"Failed to parse QE output {filepath}: {e}")
+            return None
