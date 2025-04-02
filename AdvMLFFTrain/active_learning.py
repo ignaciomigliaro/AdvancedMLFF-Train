@@ -325,7 +325,9 @@ class ActiveLearning:
             all_atoms = new_atoms + training_atoms
 
             # === STEP 6: Retrain MLFF models ===
-            self.mlff_train(all_atoms)
+            model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
+            self.mlff_train(all_atoms, output_dir=model_dir)
+            self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
 
             # === STEP 7: Update sampled & remaining pools ===
             sampled_atoms += filtered_atoms_list
