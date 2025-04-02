@@ -289,13 +289,21 @@ class ActiveLearning:
         parser = DFTOutputParser(output_dir=self.training_data, dft_software=self.dft_software)
         return parser.parse_outputs()
 
-    def mlff_train(self,atoms_list):
-        trainer = MLFFTrain(atoms_list=atoms_list,
-                  method=self.calculator,
-                  output_dir=self.output_dir,
-                  template_dir=self.template_dir)
-        n_models = getattr(self.mace_calc, "num_models", 1)
-        trainer.prepare_and_submit_mlff(n_models=n_models)
+    def mlff_train(self, atoms_list, output_dir=None):
+        """
+        Wrap MLFFTrain class to train models with given atoms and optional output_dir.
+        """
+        if output_dir is None:
+            output_dir = self.output_dir  # fallback to default
+        
+        trainer = MLFFTrain(
+            atoms_list=atoms_list,
+            method=self.calculator,
+            output_dir=output_dir,
+            template_dir=self.template_dir,
+        )
+
+        trainer.prepare_and_submit_mlff(n_models=self.args.n_models)
 
     def run(self, max_iterations=10):
         """
@@ -351,6 +359,7 @@ class ActiveLearning:
             # === STEP 7: Retrain MLFF models ===
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
             self.mlff_train(all_atoms, output_dir=model_dir)
+
 
             # === STEP 8: Reload updated models into mace calculator ===
             self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
