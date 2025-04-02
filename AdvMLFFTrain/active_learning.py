@@ -96,40 +96,52 @@ class ActiveLearning:
 
     def calculate_energies_forces(self, sampled_atoms, iteration):
         """
-        Run SLURM-based evaluation of all MACE models on the same structure set.
-        Returns a list of atoms_list per model: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
+        Run MACE evaluation for all models using SLURM, or load existing results if available.
+        Returns: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
         """
         input_xyz = f"eval_input_iter_{iteration}.xyz"
         input_xyz_path = os.path.join(self.mace_calc.output_dir, input_xyz)
 
-        logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
+        # Check for evaluated outputs
+        output_files_exist = True
+        evaluated_files = []
 
-        # Always write input_xyz (safe even if already exists)
-        from ase.io import write
-        write(input_xyz_path, sampled_atoms)
-
-        # Submit one job per model
         for model_index in range(self.mace_calc.num_models):
-            self.mace_calc.submit_mace_eval_job(
-                atoms_list=sampled_atoms,
-                model_index=model_index,
-                job_name=f"mace_eval_iter_{iteration}_model_{model_index}",
-                xyz_name=input_xyz,
-                slurm_template="slurm_template_mace_eval.slurm"
-            )
+            fname = f"evaluated_{input_xyz}".replace(".xyz", f"_model_{model_index}.xyz")
+            fpath = os.path.join(self.mace_calc.output_dir, fname)
+            evaluated_files.append((model_index, fname, fpath))
+            if not os.path.exists(fpath):
+                output_files_exist = False
 
-        # Wait for all jobs to complete
-        submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
-        submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models + 1)
+        if output_files_exist:
+            logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
+        else:
+            logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
 
-        # Load evaluated atoms from each model
+            # Write input XYZ file
+            from ase.io import write
+            write(input_xyz_path, sampled_atoms)
+
+            # Submit one job per model
+            for model_index, _, _ in evaluated_files:
+                self.mace_calc.submit_mace_eval_job(
+                    atoms_list=sampled_atoms,
+                    model_index=model_index,
+                    job_name=f"mace_eval_iter_{iteration}_model_{model_index}",
+                    xyz_name=input_xyz,
+                    slurm_template="slurm_template_mace_eval.slurm"
+                )
+
+            # Wait for jobs to finish
+            submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
+            submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models + 1)
+
+        # Load results
         all_atoms_lists = []
-        for model_index in range(self.mace_calc.num_models):
-            evaluated_file = f"evaluated_{input_xyz}".replace(".xyz", f"_model_{model_index}.xyz")
-            atoms_list = self.mace_calc.load_evaluated_results(evaluated_file)
+        for model_index, fname, _ in evaluated_files:
+            atoms_list = self.mace_calc.load_evaluated_results(fname)
             all_atoms_lists.append(atoms_list)
 
-        logging.info(f"AL Iteration {iteration}: Loaded inference results for all models.")
         return all_atoms_lists
 
     #TODO Create a filtering class.
