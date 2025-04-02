@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.float64)
 class MaceCalc:
     """Handles loading MACE models and performing energy & force calculations."""
 
-    def __init__(self, model_dir, device="cpu", template_dir="templates", output_dir="mace_inference"):
+    def __init__(self, model_dir, device="cpu", template_dir="templates", output_dir="mace_inference",strict=False):
         """
         Initializes MaceCalc with the model directory and device.
 
@@ -29,7 +29,7 @@ class MaceCalc:
         self.device = device
         self.template_dir = template_dir
         self.output_dir = output_dir
-        self.models = self.load_models()
+        self.models = self.load_models(strict=strict)
         self.num_models = len(self.models)
 
         os.makedirs(self.output_dir, exist_ok=True)

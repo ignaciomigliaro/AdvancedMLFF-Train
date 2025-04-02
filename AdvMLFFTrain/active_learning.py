@@ -49,13 +49,16 @@ class ActiveLearning:
             logging.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
         # **Initialize MACE calculator if selected**
+        
         if self.calculator.lower() == "mace":
-            self.mace_calc = MaceCalc(self.args.model_dir, self.device)
-            # **Explicitly check models in model_dir**
+            # Initial loose loading of any available models
+            self.mace_calc = MaceCalc(self.args.model_dir, self.device, strict=False)
+
+            # Ensure model directory exists
             if not os.path.isdir(self.args.model_dir):
                 raise ValueError(f"Model directory {self.args.model_dir} does not exist.")
 
-            # **Ensure at least 3 models for active learning**
+            # Require 3 models for active learning
             if self.mace_calc.num_models < 3:
                 raise ValueError(
                     f"Active Learning requires at least 3 MACE models, but only {self.mace_calc.num_models} were found in {self.args.model_dir}. "
@@ -63,6 +66,7 @@ class ActiveLearning:
                 )
 
             logging.info(f"Initialized MACE calculator with {self.mace_calc.num_models} models from {self.args.model_dir}.")
+
 
     def plot_std_dev_distribution(std_devs):
         """
