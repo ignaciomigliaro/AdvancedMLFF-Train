@@ -49,7 +49,6 @@ class ActiveLearning:
             logging.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
         # **Initialize MACE calculator if selected**
-        
         if self.calculator.lower() == "mace":
             # Initial loose loading of any available models
             self.mace_calc = MaceCalc(self.args.model_dir, self.device, strict=False)
@@ -297,17 +296,22 @@ class ActiveLearning:
         """
         Wrap MLFFTrain class to train models with given atoms and optional output_dir.
         """
-        if output_dir is None:
-            output_dir = self.output_dir  # fallback to default
-        
         trainer = MLFFTrain(
-            atoms_list=atoms_list,
-            method=self.calculator,
-            output_dir=output_dir,
-            template_dir=self.template_dir,
+        atoms_list=atoms_list,
+        method=self.calculator,
+        output_dir=self.output_dir,
+        template_dir=self.template_dir
         )
+        n_models = getattr(self.mace_calc, "num_models", 1)
+        trainer.prepare_and_submit_mlff(n_models=n_models)
 
-        trainer.prepare_and_submit_mlff(n_models=self.mace_calc.num_models)
+        # Strictly reload only the models trained in this iteration
+        strict_model_dir = os.path.join(self.output_dir, "models")
+        self.mace_calc = MaceCalc(
+            model_dir=strict_model_dir,
+            device=self.device,
+            strict=True
+        )
 
     def run(self, max_iterations=10):
         """
