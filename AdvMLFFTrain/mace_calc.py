@@ -38,13 +38,24 @@ class MaceCalc:
             logging.error(f"No MACE models found in {self.model_dir}. Check the directory path.")
 
     def load_models(self):
-        """Loads MACE model file paths."""
         models = []
-        for filename in os.listdir(self.model_dir):
-            if filename.endswith(".model"):
-                models.append(os.path.join(self.model_dir, filename))
-        logging.info(f"Successfully loaded {len(models)} MACE models.")
+        if not os.path.isdir(self.model_dir):
+            logging.error(f"Model directory {self.model_dir} does not exist.")
+            return []
+
+        for subfolder in sorted(os.listdir(self.model_dir)):
+            subfolder_path = os.path.join(self.model_dir, subfolder)
+            if os.path.isdir(subfolder_path) and subfolder.startswith("model_"):
+                expected_file = f"{subfolder}.model"
+                full_model_path = os.path.join(subfolder_path, expected_file)
+                if os.path.exists(full_model_path):
+                    models.append(full_model_path)
+                else:
+                    logging.warning(f"Expected model not found: {full_model_path}")
+
+        logging.info(f"Successfully loaded {len(models)} clean MACE models from {self.model_dir}.")
         return models
+
 
     def calculate_energy_forces(self, atoms_list):
         """
