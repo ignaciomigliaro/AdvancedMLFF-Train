@@ -303,7 +303,7 @@ class ActiveLearning:
             template_dir=self.template_dir,
         )
 
-        trainer.prepare_and_submit_mlff(n_models=self.args.n_models)
+        trainer.prepare_and_submit_mlff(n_models=self.mace_calc.num_models)
 
     def run(self, max_iterations=10):
         """
@@ -324,7 +324,7 @@ class ActiveLearning:
             if iteration == 1:
                 inference_candidates = sampled_atoms
             else:
-                inference_candidates = sample_percentage(remaining_atoms, self.args.sample_fraction)
+                inference_candidates = random_sampling(remaining_atoms,self.sample_percentage)
                 if not inference_candidates:
                     logging.info("No remaining structures to sample. Ending AL loop.")
                     break
