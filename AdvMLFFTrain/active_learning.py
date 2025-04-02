@@ -10,6 +10,8 @@ import numpy as np
 from tqdm import tqdm
 from AdvMLFFTrain.file_submit import Filesubmit
 from AdvMLFFTrain.mlff_train import MLFFTrain
+from AdvMLFFTrain.utils import random_sampling
+
 
 class ActiveLearning:
     """Handles the active learning pipeline for MACE MLFF models."""
@@ -291,23 +293,33 @@ class ActiveLearning:
         Parameters:
         - max_iterations (int): Maximum number of active learning iterations.
         """
-        # Initial dataset load
+        # === Load initial dataset ===
         sampled_atoms, remaining_atoms = self.load_data()
 
         for iteration in range(1, max_iterations + 1):
-            logging.info(f"Active Learning Iteration {iteration}/{max_iterations}")
+            logging.info(f"\nActive Learning Iteration {iteration}/{max_iterations}")
 
-            # === STEP 1: SLURM inference for all models ===
-            sampled_atoms_model_lists = self.calculate_energies_forces(sampled_atoms, iteration)
 
-            # === STEP 2: Compute std. deviation (energy & forces) across models ===
+            # === STEP 1: Decide what to sample ===
+            if iteration == 1:
+                inference_candidates = sampled_atoms
+            else:
+                inference_candidates = sample_percentage(remaining_atoms, self.args.sample_fraction)
+                if not inference_candidates:
+                    logging.info("No remaining structures to sample. Ending AL loop.")
+                    break
+
+            # === STEP 2: Run SLURM-based MACE inference on candidates ===
+            sampled_atoms_model_lists = self.calculate_energies_forces(inference_candidates, iteration)
+
+            # === STEP 3: Calculate standard deviation (query by committee) ===
             std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms_model_lists)
 
-            # === STEP 3: Filter high-uncertainty structures ===
+            # === STEP 4: Filter high-uncertainty structures ===
             filtered_atoms_list = self.filter_high_deviation_structures(
                 std_dev,
                 std_dev_forces,
-                sampled_atoms_model_lists[0],  # Use model_0 as reference
+                sampled_atoms_model_lists[0],  # Use model_0 atoms for reference
                 percentile=90
             )
 
@@ -315,23 +327,24 @@ class ActiveLearning:
                 logging.info("No new high-uncertainty structures found. Stopping AL loop.")
                 break
 
-            # === STEP 4: Run DFT on filtered structures ===
+            # === STEP 5: Run DFT on selected high-uncertainty structures ===
             self.generate_dft_inputs(filtered_atoms_list)
             self.launch_dft_calcs()
 
-            # === STEP 5: Parse DFT outputs and combine with existing training data ===
+            # === STEP 6: Parse new DFT results and combine with existing training set ===
             new_atoms = self.parse_outputs()
             training_atoms = self.parse_training_data()
             all_atoms = new_atoms + training_atoms
 
-            # === STEP 6: Retrain MLFF models ===
+            # === STEP 7: Retrain MLFF models ===
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
             self.mlff_train(all_atoms, output_dir=model_dir)
+
+            # === STEP 8: Reload updated models into mace calculator ===
             self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
 
-            # === STEP 7: Update sampled & remaining pools ===
+            # === STEP 9: Update active pools ===
             sampled_atoms += filtered_atoms_list
-            remaining_atoms = [atom for atom in remaining_atoms if atom not in filtered_atoms_list]
+            remaining_atoms = [a for a in remaining_atoms if a not in filtered_atoms_list]
 
-        logging.info("Active Learning process completed.")
-
+            logging.info("\nActive Learning process completed.")
