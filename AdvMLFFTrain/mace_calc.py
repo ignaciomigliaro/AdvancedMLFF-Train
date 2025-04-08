@@ -97,32 +97,34 @@ class MaceCalc:
         progress_bar.close()
         return atoms_list
 
-    def submit_mace_eval_job(self, atoms_list, model_index=0, job_name="mace_eval", xyz_name="eval_input.xyz", slurm_template="slurm_template_mace_eval.slurm"):
+    def submit_mace_eval_jobs(self, atoms_list, xyz_name="eval_input.xyz", slurm_template="slurm_template_mace_eval.slurm"):
         """
-        Writes XYZ, prepares SLURM script for mace_eval_configs, and submits job.
-        Each job uses a unique output file per model.
+        Submits SLURM evaluation jobs for each model and waits until completion.
         """
         input_xyz = os.path.join(self.output_dir, xyz_name)
-        output_xyz = os.path.join(self.output_dir, f"evaluated_{xyz_name}".replace(".xyz", f"_model_{model_index}.xyz"))
-        model_path = self.models[model_index]
-        slurm_script = os.path.join(self.output_dir, f"{job_name}_model_{model_index}.slurm")
-
-        # Write structures to XYZ (only once if needed)
         if not os.path.exists(input_xyz):
             write(input_xyz, atoms_list)
-
-        # Generate SLURM script
-        self.create_slurm_script(
-            template_name=slurm_template,
-            output_path=slurm_script,
-            input_file=os.path.basename(input_xyz),
-            output_file=os.path.basename(output_xyz),
-            model_path=model_path,
-        )
-
-        # Submit the job
+        
         submitter = Filesubmit(self.output_dir)
-        submitter._submit_job(slurm_script)
+        submitted_scripts = []
+
+        for model_index, model_path in enumerate(self.models):
+            output_xyz = os.path.join(self.output_dir, f"evaluated_{xyz_name}".replace(".xyz", f"_model_{model_index}.xyz"))
+            slurm_script = os.path.join(self.output_dir, f"mace_eval_model_{model_index}.slurm")
+
+            self.create_slurm_script(
+                template_name=slurm_template,
+                output_path=slurm_script,
+                input_file=os.path.basename(input_xyz),
+                output_file=os.path.basename(output_xyz),
+                model_path=model_path,
+            )
+            submitted_scripts.append(slurm_script)
+
+        # Submit and wait
+        logging.info(f"Submitting {len(submitted_scripts)} MACE evaluation jobs and waiting...")
+        submitter.run_all_jobs()  # This blocks until all jobs complete
+
 
     def create_slurm_script(self, template_name, output_path, input_file, output_file, model_path):
         """
