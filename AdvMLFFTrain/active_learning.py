@@ -105,14 +105,13 @@ class ActiveLearning:
         input_xyz = f"eval_input_iter_{iteration}.xyz"
         input_xyz_path = os.path.join(self.mace_calc.output_dir, input_xyz)
 
-        # Check for evaluated outputs
-        output_files_exist = True
         evaluated_files = []
+        output_files_exist = True
 
         for model_index in range(self.mace_calc.num_models):
-            fname = f"evaluated_{input_xyz}".replace(".xyz", f"_model_{model_index}.xyz")
+            fname = f"evaluated_eval_input_iter_{iteration}_model_{model_index}.xyz"
             fpath = os.path.join(self.mace_calc.output_dir, fname)
-            evaluated_files.append((model_index, fname, fpath))
+            evaluated_files.append(fname)
             if not os.path.exists(fpath):
                 output_files_exist = False
 
@@ -121,31 +120,21 @@ class ActiveLearning:
         else:
             logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
 
-            # Write input XYZ file
-            from ase.io import write
-            write(input_xyz_path, sampled_atoms)
+            # Submit all jobs and wait (write happens internally if needed)
+            self.mace_calc.submit_mace_eval_jobs(
+                atoms_list=sampled_atoms,
+                xyz_name=input_xyz,
+                slurm_template="slurm_template_mace_eval.slurm"
+            )
 
-            # Submit one job per model
-            for model_index, _, _ in evaluated_files:
-                self.mace_calc.submit_mace_eval_job(
-                    atoms_list=sampled_atoms,
-                    model_index=model_index,
-                    job_name=f"mace_eval_iter_{iteration}_model_{model_index}",
-                    xyz_name=input_xyz,
-                    slurm_template="slurm_template_mace_eval.slurm"
-                )
-
-            # Wait for jobs to finish
-            submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
-            submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models + 1)
-
-        # Load results
+        # Load results per model
         all_atoms_lists = []
-        for model_index, fname, _ in evaluated_files:
+        for fname in evaluated_files:
             atoms_list = self.mace_calc.load_evaluated_results(fname)
             all_atoms_lists.append(atoms_list)
 
         return all_atoms_lists
+
 
     #TODO Create a filtering class.
     def calculate_std_dev(self, atoms_lists_per_model):
