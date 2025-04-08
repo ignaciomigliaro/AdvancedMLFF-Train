@@ -6,7 +6,7 @@ from AdvMLFFTrain.file_submit import Filesubmit  # adjust path if needed
 import yaml
 import subprocess
 from ase.io.extxyz import write_xyz
-
+import time
 
 class MLFFTrain:
     """
@@ -40,6 +40,7 @@ class MLFFTrain:
 
         files = self._write_mace_xyz_split()
 
+        job_ids = []
         for i in range(n_models):
             model_name = f"model_{i}"
             yaml_file = self.create_mace_yaml(
@@ -49,7 +50,29 @@ class MLFFTrain:
                 model_name=model_name
             )
             logging.info(f"Submitting training job for {model_name} with config {yaml_file}")
-            self.submit_training_job(yaml_file)
+            job_id = self.submit_training_job(yaml_file)
+            if job_id:
+                job_ids.append(job_id)
+
+        def wait_for_models(model_dir, num_models=1, timeout=900, check_interval=10):
+            logging.info(f"Waiting for {num_models} model(s) to appear in {model_dir}")
+            waited = 0
+            while waited < timeout:
+                found_models = []
+                if os.path.exists(model_dir):
+                    for root, dirs, files in os.walk(model_dir):
+                        found_models.extend([f for f in files if f.endswith(".model")])
+                if len(found_models) >= num_models:
+                    logging.info(f"✅ Found {len(found_models)} model file(s) in {model_dir}")
+                    return
+                time.sleep(check_interval)
+                waited += check_interval
+            raise TimeoutError(f"Timed out waiting for {num_models} model files in {model_dir}")
+
+        # Model dir path
+        model_dir = os.path.join(self.output_dir, "models")
+        wait_for_models(model_dir, num_models=n_models)
+
 
     def _write_mace_xyz_split(self):
         """
@@ -121,8 +144,6 @@ class MLFFTrain:
 
         logging.info(f"Created MACE config from template: {yaml_path}")
         return yaml_path
-
-
 
     def submit_training_job(self, yaml_path, slurm_name="mlff_train.slurm"):
         """
