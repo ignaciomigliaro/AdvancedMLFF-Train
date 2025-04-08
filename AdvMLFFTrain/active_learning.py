@@ -283,21 +283,23 @@ class ActiveLearning:
         """
         Wrap MLFFTrain class to train models with given atoms and per-iteration output_dir.
         """
-        model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
+        iter_output_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
 
         trainer = MLFFTrain(
             atoms_list=atoms_list,
             method=self.calculator,
-            output_dir=model_dir,
+            output_dir=iter_output_dir,
             template_dir=self.template_dir
         )
 
         n_models = getattr(self.mace_calc, "num_models", 1)
         trainer.prepare_and_submit_mlff(n_models=n_models)
 
-        # Wait for models to appear (already built-in)
+        # Adjusted to point to the actual subdirectory where models are stored
+        strict_model_dir = os.path.join(iter_output_dir, "models")
+
         self.mace_calc = MaceCalc(
-            model_dir=model_dir,
+            model_dir=strict_model_dir,
             device=self.device,
             strict=True
         )
