@@ -332,7 +332,7 @@ class ActiveLearning:
             if iteration == 1:
                 inference_candidates = sampled_atoms
             else:
-                inference_candidates = random_sampling(remaining_atoms,self.sample_percentage)
+                inference_candidates,remaining_atoms = random_sampling(remaining_atoms,self.sample_percentage)
                 if not inference_candidates:
                     logging.info("No remaining structures to sample. Ending AL loop.")
                     break
