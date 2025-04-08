@@ -119,11 +119,9 @@ class ActiveLearning:
             logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
         else:
             logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
-
-            # Submit all jobs and wait (write happens internally if needed)
             self.mace_calc.submit_mace_eval_jobs(
                 atoms_list=sampled_atoms,
-                xyz_name=input_xyz,
+                xyz_name=input_xyz,  # Will be used to generate iteration-specific outputs
                 slurm_template="slurm_template_mace_eval.slurm"
             )
 
@@ -281,23 +279,25 @@ class ActiveLearning:
         parser = DFTOutputParser(output_dir=self.training_data, dft_software=self.dft_software)
         return parser.parse_outputs()
 
-    def mlff_train(self, atoms_list, output_dir=None):
+    def mlff_train(self, atoms_list, iteration):
         """
-        Wrap MLFFTrain class to train models with given atoms and optional output_dir.
+        Wrap MLFFTrain class to train models with given atoms and per-iteration output_dir.
         """
+        model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
+
         trainer = MLFFTrain(
-        atoms_list=atoms_list,
-        method=self.calculator,
-        output_dir=self.output_dir,
-        template_dir=self.template_dir
+            atoms_list=atoms_list,
+            method=self.calculator,
+            output_dir=model_dir,
+            template_dir=self.template_dir
         )
+
         n_models = getattr(self.mace_calc, "num_models", 1)
         trainer.prepare_and_submit_mlff(n_models=n_models)
 
-        # Strictly reload only the models trained in this iteration
-        strict_model_dir = os.path.join(self.output_dir, "models")
+        # Wait for models to appear (already built-in)
         self.mace_calc = MaceCalc(
-            model_dir=strict_model_dir,
+            model_dir=model_dir,
             device=self.device,
             strict=True
         )
