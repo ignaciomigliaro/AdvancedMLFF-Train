@@ -357,7 +357,7 @@ class ActiveLearning:
 
             # === STEP 7: Retrain MLFF models ===
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
-            self.mlff_train(all_atoms, output_dir=model_dir)
+            self.mlff_train(all_atoms, iteration=iteration)
 
 
             # === STEP 8: Reload updated models into mace calculator ===
