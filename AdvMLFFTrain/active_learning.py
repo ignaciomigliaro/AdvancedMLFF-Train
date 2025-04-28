@@ -171,6 +171,8 @@ class ActiveLearning:
         progress.close()
 
         logging.info("Standard deviations calculated.")
+        logging.info(f"Mean standard deviation of forces: {np.mean(std_dev_forces)}")
+        logging.info(f"Mean standard deviation of energies: {np.mean(std_energy)}")
         return std_energy, std_dev_forces
 
     def filter_high_deviation_structures(self,std_dev,std_dev_forces,sampled_atoms,percentile=90):
