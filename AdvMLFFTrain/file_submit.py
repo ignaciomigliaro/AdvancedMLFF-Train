@@ -17,16 +17,28 @@ class Filesubmit:
 
     def _get_running_job_ids(self):
         """
-        Get a set of running SLURM job IDs for the current user.
+        Get a set of running SLURM job IDs for the current user and the current project.
+        Only jobs with the specific job name are considered.
         """
         try:
             username = getpass.getuser()
             output = subprocess.check_output(
-                f"squeue -u {username} -h -o %i",
+                f"squeue -u {username} -h -o '%i %j'",
                 shell=True,
                 text=True
             )
-            return set(output.strip().splitlines())
+            job_entries = output.strip().splitlines()
+            running_job_ids = set()
+
+            for entry in job_entries:
+                if not entry.strip():
+                    continue
+                job_id, job_name = entry.split(maxsplit=1)
+                if job_name == "advmlfftrain_job":  # <-- match only our submitted jobs
+                    running_job_ids.add(job_id)
+
+            return running_job_ids
+
         except Exception as e:
             logging.error(f"Error retrieving SLURM jobs: {e}")
             return set()
@@ -42,7 +54,8 @@ class Filesubmit:
         Returns:
         - str or None: The submitted SLURM job ID or None on failure.
         """
-        cmd = ["sbatch", script_path] + list(extra_args)
+        job_name = "advmlfftrain_job"
+        cmd = ["sbatch", "--job-name",job_name,script_path] + list(extra_args)
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
