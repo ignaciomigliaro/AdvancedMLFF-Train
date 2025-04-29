@@ -50,12 +50,14 @@ class ActiveLearning:
 
         # **Initialize MACE calculator if selected**
         if self.calculator.lower() == "mace":
-            self.mace_calc = MaceCalc(self.args.model_dir, self.device)
-            # **Explicitly check models in model_dir**
+            # Initial loose loading of any available models
+            self.mace_calc = MaceCalc(self.args.model_dir, self.device, strict=False)
+
+            # Ensure model directory exists
             if not os.path.isdir(self.args.model_dir):
                 raise ValueError(f"Model directory {self.args.model_dir} does not exist.")
 
-            # **Ensure at least 3 models for active learning**
+            # Require 3 models for active learning
             if self.mace_calc.num_models < 3:
                 raise ValueError(
                     f"Active Learning requires at least 3 MACE models, but only {self.mace_calc.num_models} were found in {self.args.model_dir}. "
@@ -63,6 +65,7 @@ class ActiveLearning:
                 )
 
             logging.info(f"Initialized MACE calculator with {self.mace_calc.num_models} models from {self.args.model_dir}.")
+
 
     def plot_std_dev_distribution(std_devs):
         """
@@ -96,41 +99,40 @@ class ActiveLearning:
 
     def calculate_energies_forces(self, sampled_atoms, iteration):
         """
-        Run SLURM-based evaluation of all MACE models on the same structure set.
-        Returns a list of atoms_list per model: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
+        Run MACE evaluation for all models using SLURM, or load existing results if available.
+        Returns: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
         """
         input_xyz = f"eval_input_iter_{iteration}.xyz"
         input_xyz_path = os.path.join(self.mace_calc.output_dir, input_xyz)
 
-        logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
+        evaluated_files = []
+        output_files_exist = True
 
-        # Always write input_xyz (safe even if already exists)
-        from ase.io import write
-        write(input_xyz_path, sampled_atoms)
-
-        # Submit one job per model
         for model_index in range(self.mace_calc.num_models):
-            self.mace_calc.submit_mace_eval_job(
+            fname = f"evaluated_eval_input_iter_{iteration}_model_{model_index}.xyz"
+            fpath = os.path.join(self.mace_calc.output_dir, fname)
+            evaluated_files.append(fname)
+            if not os.path.exists(fpath):
+                output_files_exist = False
+
+        if output_files_exist:
+            logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
+        else:
+            logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
+            self.mace_calc.submit_mace_eval_jobs(
                 atoms_list=sampled_atoms,
-                model_index=model_index,
-                job_name=f"mace_eval_iter_{iteration}_model_{model_index}",
-                xyz_name=input_xyz,
+                xyz_name=input_xyz,  # Will be used to generate iteration-specific outputs
                 slurm_template="slurm_template_mace_eval.slurm"
             )
 
-        # Wait for all jobs to complete
-        submitter = Filesubmit(job_dir=self.mace_calc.output_dir)
-        submitter.run_all_jobs(max_concurrent=self.mace_calc.num_models + 1)
-
-        # Load evaluated atoms from each model
+        # Load results per model
         all_atoms_lists = []
-        for model_index in range(self.mace_calc.num_models):
-            evaluated_file = f"evaluated_{input_xyz}".replace(".xyz", f"_model_{model_index}.xyz")
-            atoms_list = self.mace_calc.load_evaluated_results(evaluated_file)
+        for fname in evaluated_files:
+            atoms_list = self.mace_calc.load_evaluated_results(fname)
             all_atoms_lists.append(atoms_list)
 
-        logging.info(f"AL Iteration {iteration}: Loaded inference results for all models.")
         return all_atoms_lists
+
 
     #TODO Create a filtering class.
     def calculate_std_dev(self, atoms_lists_per_model):
@@ -169,6 +171,8 @@ class ActiveLearning:
         progress.close()
 
         logging.info("Standard deviations calculated.")
+        logging.info(f"Mean standard deviation of forces: {np.mean(std_dev_forces)}")
+        logging.info(f"Mean standard deviation of energies: {np.mean(std_energy)}")
         return std_energy, std_dev_forces
 
     def filter_high_deviation_structures(self,std_dev,std_dev_forces,sampled_atoms,percentile=90):
@@ -277,13 +281,30 @@ class ActiveLearning:
         parser = DFTOutputParser(output_dir=self.training_data, dft_software=self.dft_software)
         return parser.parse_outputs()
 
-    def mlff_train(self,atoms_list):
-        trainer = MLFFTrain(atoms_list=atoms_list,
-                  method=self.calculator,
-                  output_dir=self.output_dir,
-                  template_dir=self.template_dir)
+    def mlff_train(self, atoms_list, iteration):
+        """
+        Wrap MLFFTrain class to train models with given atoms and per-iteration output_dir.
+        """
+        iter_output_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
+
+        trainer = MLFFTrain(
+            atoms_list=atoms_list,
+            method=self.calculator,
+            output_dir=iter_output_dir,
+            template_dir=self.template_dir
+        )
+
         n_models = getattr(self.mace_calc, "num_models", 1)
         trainer.prepare_and_submit_mlff(n_models=n_models)
+
+        # Adjusted to point to the actual subdirectory where models are stored
+        strict_model_dir = os.path.join(iter_output_dir, "models")
+
+        self.mace_calc = MaceCalc(
+            model_dir=strict_model_dir,
+            device=self.device,
+            strict=True
+        )
 
     def run(self, max_iterations=10):
         """
@@ -304,7 +325,7 @@ class ActiveLearning:
             if iteration == 1:
                 inference_candidates = sampled_atoms
             else:
-                inference_candidates = sample_percentage(remaining_atoms, self.args.sample_fraction)
+                inference_candidates,remaining_atoms = random_sampling(remaining_atoms,self.sample_percentage)
                 if not inference_candidates:
                     logging.info("No remaining structures to sample. Ending AL loop.")
                     break
@@ -338,7 +359,8 @@ class ActiveLearning:
 
             # === STEP 7: Retrain MLFF models ===
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
-            self.mlff_train(all_atoms, output_dir=model_dir)
+            self.mlff_train(all_atoms, iteration=iteration)
+
 
             # === STEP 8: Reload updated models into mace calculator ===
             self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)

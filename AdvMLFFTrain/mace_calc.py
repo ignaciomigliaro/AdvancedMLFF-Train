@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.float64)
 class MaceCalc:
     """Handles loading MACE models and performing energy & force calculations."""
 
-    def __init__(self, model_dir, device="cpu", template_dir="templates", output_dir="mace_inference"):
+    def __init__(self, model_dir, device="cpu", template_dir="templates", output_dir="mace_inference",strict=False):
         """
         Initializes MaceCalc with the model directory and device.
 
@@ -29,7 +29,7 @@ class MaceCalc:
         self.device = device
         self.template_dir = template_dir
         self.output_dir = output_dir
-        self.models = self.load_models()
+        self.models = self.load_models(strict=strict)
         self.num_models = len(self.models)
 
         os.makedirs(self.output_dir, exist_ok=True)
@@ -37,13 +37,28 @@ class MaceCalc:
         if self.num_models == 0:
             logging.error(f"No MACE models found in {self.model_dir}. Check the directory path.")
 
-    def load_models(self):
-        """Loads MACE model file paths."""
+    def load_models(self, strict=False):
         models = []
-        for filename in os.listdir(self.model_dir):
-            if filename.endswith(".model"):
-                models.append(os.path.join(self.model_dir, filename))
-        logging.info(f"Successfully loaded {len(models)} MACE models.")
+
+        if strict:
+            # Strict: only load model_n/model_n.model
+            for subfolder in sorted(os.listdir(self.model_dir)):
+                subfolder_path = os.path.join(self.model_dir, subfolder)
+                if os.path.isdir(subfolder_path) and subfolder.startswith("model_"):
+                    expected_file = f"{subfolder}.model"
+                    full_model_path = os.path.join(subfolder_path, expected_file)
+                    if os.path.exists(full_model_path):
+                        models.append(full_model_path)
+                    else:
+                        logging.warning(f"Expected model not found: {full_model_path}")
+        else:
+            # Loose: grab all .model files anywhere
+            for root, _, files in os.walk(self.model_dir):
+                for filename in files:
+                    if filename.endswith(".model"):
+                        models.append(os.path.join(root, filename))
+
+        logging.info(f"Successfully loaded {len(models)} model(s) from {self.model_dir}.")
         return models
 
     def calculate_energy_forces(self, atoms_list):
@@ -82,32 +97,36 @@ class MaceCalc:
         progress_bar.close()
         return atoms_list
 
-    def submit_mace_eval_job(self, atoms_list, model_index=0, job_name="mace_eval", xyz_name="eval_input.xyz", slurm_template="slurm_template_mace_eval.slurm"):
+    def submit_mace_eval_jobs(self, atoms_list, xyz_name="eval_input.xyz", slurm_template="slurm_template_mace_eval.slurm"):
         """
-        Writes XYZ, prepares SLURM script for mace_eval_configs, and submits job.
-        Each job uses a unique output file per model.
+        Submits SLURM evaluation jobs for each model and waits until completion.
         """
         input_xyz = os.path.join(self.output_dir, xyz_name)
-        output_xyz = os.path.join(self.output_dir, f"evaluated_{xyz_name}".replace(".xyz", f"_model_{model_index}.xyz"))
-        model_path = self.models[model_index]
-        slurm_script = os.path.join(self.output_dir, f"{job_name}_model_{model_index}.slurm")
-
-        # Write structures to XYZ (only once if needed)
         if not os.path.exists(input_xyz):
             write(input_xyz, atoms_list)
 
-        # Generate SLURM script
-        self.create_slurm_script(
-            template_name=slurm_template,
-            output_path=slurm_script,
-            input_file=os.path.basename(input_xyz),
-            output_file=os.path.basename(output_xyz),
-            model_path=model_path,
-        )
-
-        # Submit the job
         submitter = Filesubmit(self.output_dir)
-        submitter._submit_job(slurm_script)
+        submitted_scripts = []
+
+        for model_index, model_path in enumerate(self.models):
+            # Append model/iteration to filenames
+            base = xyz_name.replace(".xyz", f"_model_{model_index}")
+            output_xyz = f"evaluated_{base}.xyz"
+            slurm_script = os.path.join(self.output_dir, f"mace_eval_{base}.slurm")
+
+            self.create_slurm_script(
+                template_name=slurm_template,
+                output_path=slurm_script,
+                input_file=os.path.basename(input_xyz),
+                output_file=output_xyz,
+                model_path=model_path,
+            )
+            submitted_scripts.append(slurm_script)
+
+        logging.info(f"Submitting {len(submitted_scripts)} MACE evaluation jobs and waiting...")
+        submitter.run_all_jobs()
+
+
 
     def create_slurm_script(self, template_name, output_path, input_file, output_file, model_path):
         """
