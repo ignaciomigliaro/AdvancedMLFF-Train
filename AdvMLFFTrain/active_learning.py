@@ -305,7 +305,8 @@ class ActiveLearning:
     def parse_training_data(self):
         """
         Parses the previous training data outputs on the selected DFT software
-        """
+        """        
+        logging.info(f"Parsing training data from {self.training_data}...")
         parser = DFTOutputParser(output_dir=self.training_data, dft_software=self.dft_software)
         return parser.parse_outputs()
 
@@ -391,6 +392,7 @@ class ActiveLearning:
 
             # === STEP 7: Parse new DFT results and combine with training set ===
             new_atoms = self.parse_outputs()
+            logging.info(f"Parsed {len(new_atoms)} new DFT results.")
             training_atoms = self.parse_training_data()
             all_atoms = new_atoms + training_atoms
 
