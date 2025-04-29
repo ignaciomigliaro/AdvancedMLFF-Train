@@ -6,7 +6,7 @@ from ase import Atoms
 
 class DFTInputGenerator:
     """Generates DFT input files for ORCA and Quantum ESPRESSO (QE)."""
-
+    
     def __init__(self, output_dir, dft_software, template_dir="templates"):
         """
         Initializes the DFTInputGenerator.
@@ -21,45 +21,35 @@ class DFTInputGenerator:
         self.template_dir = template_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate_dft_inputs(self, atoms_list):
+    def generate_dft_inputs(self, atoms_list, iteration=0):
         """
         Generates DFT input files and corresponding SLURM scripts.
 
         Parameters:
         - atoms_list (list): List of ASE Atoms objects.
-
+        - iteration (int): Current active learning iteration (used in file naming).
+        
         Returns:
         - input_files (list): List of generated input file paths.
         """
         if self.dft_software == "orca":
             template = os.path.join(self.template_dir, "orca_template.inp")
-            inputs = self._write_orca_files(atoms_list, template)
+            inputs = self._write_orca_files(atoms_list, template, iteration)
             self.create_slurm_scripts(inputs, "slurm_template_orca.slurm")
         elif self.dft_software == "qe":
-            inputs = self._write_qe_files(atoms_list)
+            inputs = self._write_qe_files(atoms_list, iteration)
             self.create_slurm_scripts(inputs, "slurm_template_qe.slurm")
         else:
             raise ValueError(f"Unsupported DFT software: {self.dft_software}")
 
         return inputs
 
-    def _write_orca_files(self, atoms_list, template):
-        """
-        Generates ORCA input files.
-
-        Parameters:
-            atoms_list (list): List of ASE Atoms objects.
-            template (str): Path to the ORCA template file.
-
-        Returns:
-            input_files (list): List of generated ORCA input file paths.
-        """
+    def _write_orca_files(self, atoms_list, template, iteration):
         input_files = []
-
         logging.info("Writing ORCA input files.")
 
         for i, atoms in enumerate(atoms_list):
-            base_name = f"structure_{i}"
+            base_name = f"iter_{iteration}_structure_{i}"
             xyz_file = os.path.join(self.output_dir, f"{base_name}.xyz")
             input_file = os.path.join(self.output_dir, f"{base_name}.inp")
 
@@ -82,16 +72,7 @@ class DFTInputGenerator:
 
         return input_files
 
-    def _write_qe_files(self, atoms_list):
-        """
-        Generates Quantum ESPRESSO input files.
-
-        Parameters:
-            atoms_list (list): List of ASE Atoms objects.
-
-        Returns:
-            input_files (list): List of generated QE input file paths.
-        """
+    def _write_qe_files(self, atoms_list, iteration):
         input_data = {
             "calculation": "scf",
             "prefix": "qe_input",
@@ -108,29 +89,20 @@ class DFTInputGenerator:
         }
         
         pseudos = {
-            "Cl": "Cl.upf",
-            "O": "O.upf",
-            "F": "F.upf",
-            "I": "I.upf",
-            "Br": "Br.upf",
-            "La": "La.upf",
-            "Li": "Li.upf",
-            "Zr": "Zr.upf",
-            "C": "C.upf",
-            "H": "H.upf",
-            "Nb": "Nb.upf",
+            "Cl": "Cl.upf", "O": "O.upf", "F": "F.upf", "I": "I.upf",
+            "Br": "Br.upf", "La": "La.upf", "Li": "Li.upf", "Zr": "Zr.upf",
+            "C": "C.upf", "H": "H.upf", "Nb": "Nb.upf",
         }
 
         input_files = []
-
         logging.info("Writing QE input files.")
 
         for i, atoms in enumerate(atoms_list):
-            filename = os.path.join(self.output_dir, f"qe_input_{i}.in")
+            filename = os.path.join(self.output_dir, f"iter_{iteration}_qe_input_{i}.in")
             
             write(
                 filename=filename,
-                images=atoms, 
+                images=atoms,
                 format='espresso-in',
                 input_data=input_data,
                 pseudopotentials=pseudos,
@@ -141,51 +113,32 @@ class DFTInputGenerator:
             logging.info(f"Created QE input: {filename}")
 
         return input_files
-    
-    def create_slurm_scripts(self, input_files, template_name):
-        """
-        Generate SLURM job scripts for multiple input files.
 
-        Args:
-            input_files (list): List of DFT input file paths.
-            template_name (str): Name of the SLURM template file (e.g., "slurm_template_orca.slurm").
-        """
+    def create_slurm_scripts(self, input_files, template_name):
         for input_file in input_files:
-            base_name = os.path.basename(input_file)  # Extract filename (with extension)
-            filename_no_ext, ext = os.path.splitext(base_name)  # Separate name and extension
+            base_name = os.path.basename(input_file)
+            filename_no_ext, ext = os.path.splitext(base_name)
             slurm_name = filename_no_ext + ".slurm"  # Proper SLURM script name
             self.create_slurm_script(template_name, slurm_name, base_name, filename_no_ext)
 
     def create_slurm_script(self, template_name, output_name, input_filename, output_filename):
-        """
-        Generate a single SLURM job script from a template.
-
-        Args:
-            template_name (str): Name of the SLURM template file (e.g., "slurm_template_orca.slurm").
-            output_name (str): Name of the output SLURM script.
-            input_filename (str): Full input filename (e.g., "structure_0.inp").
-            output_filename (str): Filename without extension (e.g., "structure_0").
-        """
         template_path = os.path.join(self.template_dir, template_name)
         output_path = os.path.join(self.output_dir, output_name)
 
-        # Ensure the template exists
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"Template file '{template_path}' not found.")
 
-        # Read the SLURM template
         with open(template_path, "r") as file:
             slurm_content = file.read()
 
-        # Replace placeholders
-        slurm_content = slurm_content.replace("{filename}", input_filename)  # Keep extension for input
-        slurm_content = slurm_content.replace("{output_filename}", output_filename)  # Remove extension for output
+        slurm_content = slurm_content.replace("{filename}", input_filename)
+        slurm_content = slurm_content.replace("{output_filename}", output_filename)
 
-        # Write the modified content to the output SLURM script
         with open(output_path, "w") as file:
             file.write(slurm_content)
 
         logging.info(f"Created SLURM script: {output_path}")
+
    
 class DFTOutputParser:
     """
