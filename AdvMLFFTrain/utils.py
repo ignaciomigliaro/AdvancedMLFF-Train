@@ -26,6 +26,7 @@ def parse_args():
     al_parser.add_argument("--lower_threshold", type=float)
     al_parser.add_argument("--upper_threshold", type=float)
     al_parser.add_argument("--sample_percentage", type=int, required=True)
+    al_parser.add_argument("--dft_sampling", type=int, default=100,help="Percentage of high-deviation structures to sample for DFT (default: 100)")
 
     # Data Reduction Pipeline
     dr_parser = subparsers.add_parser("data_reduction", help="Run data reduction pipeline")

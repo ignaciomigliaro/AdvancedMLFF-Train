@@ -37,6 +37,7 @@ class ActiveLearning:
         self.sample_percentage = args.sample_percentage
         self.training_data = args.training_data_dir
         self.max_al_iter = args.max_al_iter
+        self.dft_sampling = getattr(args, "dft_sampling", 100)
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -132,6 +133,33 @@ class ActiveLearning:
             all_atoms_lists.append(atoms_list)
 
         return all_atoms_lists
+
+    def sample_top_deviation_structures(self, atoms_list, std_devs):
+        """
+        Sorts atoms by standard deviation descending and selects top N% for DFT.
+
+        Returns:
+            sampled_atoms (list): Selected atoms for DFT.
+            remaining_atoms (list): Rest to be kept in active pool.
+        """
+        if not atoms_list or not std_devs:
+            return [], []
+
+        # Zip and sort by deviation descending
+        atoms_with_devs = list(zip(atoms_list, std_devs))
+        atoms_with_devs.sort(key=lambda x: x[1], reverse=True)
+
+        # Compute how many to keep
+        n_total = len(atoms_with_devs)
+        n_sample = max(1, int(n_total * self.dft_sampling / 100))
+
+        # Split
+        sampled_atoms = [x[0] for x in atoms_with_devs[:n_sample]]
+        remaining_atoms = [x[0] for x in atoms_with_devs[n_sample:]]
+
+        logging.info(f"Sampling top {self.dft_sampling}%: selected {len(sampled_atoms)}, deferred {len(remaining_atoms)}")
+
+        return sampled_atoms, remaining_atoms
 
 
     #TODO Create a filtering class.
@@ -348,25 +376,35 @@ class ActiveLearning:
                 logging.info("No new high-uncertainty structures found. Stopping AL loop.")
                 break
 
-            # === STEP 5: Run DFT on selected high-uncertainty structures ===
-            self.generate_dft_inputs(filtered_atoms_list)
+            # === STEP 5: Sample top deviation structures BEFORE DFT ===
+            if self.eval_criteria == "forces":
+                deviations = std_dev_forces
+            else:
+                deviations = std_dev
+
+            # These correspond to filtered_atoms_list
+            sampled_for_dft, deferred = self.sample_top_deviation_structures(filtered_atoms_list, deviations)
+
+            # === STEP 6: Run DFT on selected high-uncertainty structures ===
+            self.generate_dft_inputs(sampled_for_dft)
             self.launch_dft_calcs()
 
-            # === STEP 6: Parse new DFT results and combine with existing training set ===
+            # === STEP 7: Parse new DFT results and combine with training set ===
             new_atoms = self.parse_outputs()
             training_atoms = self.parse_training_data()
             all_atoms = new_atoms + training_atoms
 
-            # === STEP 7: Retrain MLFF models ===
+            # === STEP 8: Retrain MLFF models ===
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
             self.mlff_train(all_atoms, iteration=iteration)
 
-
-            # === STEP 8: Reload updated models into mace calculator ===
+            # === STEP 9: Reload updated models ===
             self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
 
-            # === STEP 9: Update active pools ===
-            sampled_atoms += filtered_atoms_list
-            remaining_atoms = [a for a in remaining_atoms if a not in filtered_atoms_list]
+            # === STEP 10: Update active pools ===
+            sampled_atoms += sampled_for_dft
+            remaining_atoms = [a for a in remaining_atoms if a not in sampled_for_dft]
+            remaining_atoms += deferred  # Add non-sampled back to active pool
 
             logging.info("\nActive Learning process completed.")
+
