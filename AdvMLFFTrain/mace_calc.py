@@ -105,7 +105,8 @@ class MaceCalc:
 
         input_xyz = os.path.join(self.output_dir, xyz_name)
         if not os.path.exists(input_xyz):
-            write_xyz(open(input_xyz, "w"), atoms_list)
+            write(input_xyz, atoms_list)
+
 
         # === Step 1: Create SLURM scripts ===
         iter_tag = xyz_name.replace(".xyz", "")  # e.g., "eval_input_iter_2"
