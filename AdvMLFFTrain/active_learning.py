@@ -38,6 +38,7 @@ class ActiveLearning:
         self.training_data = args.training_data_dir
         self.max_al_iter = args.max_al_iter
         self.dft_sampling = getattr(args, "dft_sampling", 100)
+        self.use_cache = args.use_cache.lower() == "true" if args.use_cache else False
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -66,7 +67,6 @@ class ActiveLearning:
                 )
 
             logging.info(f"Initialized MACE calculator with {self.mace_calc.num_models} models from {self.args.model_dir}.")
-
 
     def plot_std_dev_distribution(std_devs):
         """
@@ -116,15 +116,22 @@ class ActiveLearning:
             if not os.path.exists(fpath):
                 output_files_exist = False
 
-        if output_files_exist:
-            logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
+        if self.use_cache:
+            if output_files_exist:
+                logging.info(f"[CACHE] Using cached MACE results for iteration {iteration}.")
+            else:
+                logging.warning(f"[CACHE] Expected MACE output files not found for iteration {iteration}.")
+                raise FileNotFoundError("Cached inference files missing but use_cache is enabled.")
         else:
-            logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
-            self.mace_calc.submit_mace_eval_jobs(
-                atoms_list=sampled_atoms,
-                xyz_name=input_xyz,  # Will be used to generate iteration-specific outputs
-                slurm_template="slurm_template_mace_eval.slurm"
-            )
+            if output_files_exist:
+                logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
+            else:
+                logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
+                self.mace_calc.submit_mace_eval_jobs(
+                    atoms_list=sampled_atoms,
+                    xyz_name=input_xyz,
+                    slurm_template="slurm_template_mace_eval.slurm"
+                )
 
         # Load results per model
         all_atoms_lists = []
@@ -133,6 +140,7 @@ class ActiveLearning:
             all_atoms_lists.append(atoms_list)
 
         return all_atoms_lists
+
 
     def sample_top_deviation_structures(self, atoms_list, std_devs):
         """
@@ -161,8 +169,6 @@ class ActiveLearning:
 
         return sampled_atoms, remaining_atoms
 
-
-    #TODO Create a filtering class.
     def calculate_std_dev(self, atoms_lists_per_model):
         """
         Calculate standard deviation of energies and forces using Query by Committee.
@@ -265,24 +271,24 @@ class ActiveLearning:
         plt.grid(True)
         plt.show()
 
-    def generate_dft_inputs(self, atoms_list):
-            """
-            Generate DFT input files for ORCA or QE and return the output directory.
-            """
-            dft_input = DFTInputGenerator(
-                output_dir=self.output_dir, 
-                dft_software=self.dft_software, 
-                template_dir=self.template_dir
-            )
-            dft_input.generate_dft_inputs(atoms_list)
+    def generate_dft_inputs(self, atoms_list, iteration=0):
+        if self.use_cache:
+            logging.info("Skipping DFT input generation because --use_cache is set.")
+            return
+
+        dft_input = DFTInputGenerator(
+            output_dir=self.output_dir,
+            dft_software=self.dft_software,
+            template_dir=self.template_dir
+        )
+        dft_input.generate_dft_inputs(atoms_list, iteration)
 
     def launch_dft_calcs(self):
-        """
-        Launch DFT calculations using the generated input files.
-        """
+        if self.use_cache:
+            logging.info("Skipping DFT job submission because --use_cache is set.")
+            return
+
         logging.info(f"Launching calculations in {self.output_dir}")
-        
-        # Temporarily change to input directory
         cwd = os.getcwd()
         os.chdir(self.output_dir)
 
@@ -290,7 +296,7 @@ class ActiveLearning:
             submitter = Filesubmit(job_dir=".")
             submitter.run_all_jobs(max_concurrent=15)
         finally:
-            os.chdir(cwd)  # Restore original working directory
+            os.chdir(cwd)
 
     def parse_outputs(self):
         """
