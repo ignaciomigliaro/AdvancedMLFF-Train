@@ -101,7 +101,7 @@ class ActiveLearning:
     def calculate_energies_forces(self, sampled_atoms, iteration):
         """
         Run MACE evaluation for all models using SLURM, or load existing results if available.
-        Returns: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2]
+        Returns: [atoms_list_model_0, atoms_list_model_1, atoms_list_model_2], num_structures
         """
         input_xyz = f"eval_input_iter_{iteration}.xyz"
         input_xyz_path = os.path.join(self.mace_calc.output_dir, input_xyz)
@@ -116,22 +116,17 @@ class ActiveLearning:
             if not os.path.exists(fpath):
                 output_files_exist = False
 
-        if self.use_cache:
-            if output_files_exist:
-                logging.info(f"[CACHE] Using cached MACE results for iteration {iteration}.")
-            else:
-                logging.warning(f"[CACHE] Expected MACE output files not found for iteration {iteration}.")
-                raise FileNotFoundError("Cached inference files missing but use_cache is enabled.")
+        if self.use_cache and output_files_exist:
+            logging.info(f"[CACHE] Using cached MACE results for iteration {iteration}.")
         else:
-            if output_files_exist:
-                logging.info(f"Found evaluated MACE outputs for iteration {iteration}. Skipping SLURM jobs.")
-            else:
-                logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
-                self.mace_calc.submit_mace_eval_jobs(
-                    atoms_list=sampled_atoms,
-                    xyz_name=input_xyz,
-                    slurm_template="slurm_template_mace_eval.slurm"
-                )
+            if self.use_cache and not output_files_exist:
+                logging.warning(f"[CACHE] Expected MACE output files not found for iteration {iteration}. Re-running inference.")
+            logging.info(f"AL Iteration {iteration}: Preparing SLURM jobs to evaluate {len(sampled_atoms)} structures.")
+            self.mace_calc.submit_mace_eval_jobs(
+                atoms_list=sampled_atoms,
+                xyz_name=input_xyz,
+                slurm_template="slurm_template_mace_eval.slurm"
+            )
 
         # Load results per model
         all_atoms_lists = []
@@ -140,6 +135,7 @@ class ActiveLearning:
             all_atoms_lists.append(atoms_list)
 
         return all_atoms_lists, len(all_atoms_lists[0])
+
 
 
     def sample_top_deviation_structures(self, atoms_list, std_devs):
