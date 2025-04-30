@@ -136,8 +136,6 @@ class ActiveLearning:
 
         return all_atoms_lists, len(all_atoms_lists[0])
 
-
-
     def sample_top_deviation_structures(self, atoms_list, std_devs):
         """
         Sorts atoms by standard deviation descending and selects top N% for DFT.

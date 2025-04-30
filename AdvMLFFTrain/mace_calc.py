@@ -100,16 +100,16 @@ class MaceCalc:
     def submit_mace_eval_jobs(self, atoms_list, xyz_name="eval_input.xyz", slurm_template="slurm_template_mace_eval.slurm"):
         """
         Submits SLURM evaluation jobs for each model and waits until completion.
+        Only jobs corresponding to the current iteration are submitted.
         """
+
         input_xyz = os.path.join(self.output_dir, xyz_name)
         if not os.path.exists(input_xyz):
-            write(input_xyz, atoms_list)
+            write_xyz(open(input_xyz, "w"), atoms_list)
 
-        submitter = Filesubmit(self.output_dir)
-        submitted_scripts = []
-
+        # === Step 1: Create SLURM scripts ===
+        iter_tag = xyz_name.replace(".xyz", "")  # e.g., "eval_input_iter_2"
         for model_index, model_path in enumerate(self.models):
-            # Append model/iteration to filenames
             base = xyz_name.replace(".xyz", f"_model_{model_index}")
             output_xyz = f"evaluated_{base}.xyz"
             slurm_script = os.path.join(self.output_dir, f"mace_eval_{base}.slurm")
@@ -121,11 +121,20 @@ class MaceCalc:
                 output_file=output_xyz,
                 model_path=model_path,
             )
-            submitted_scripts.append(slurm_script)
+            logging.info(f"Created SLURM script: {slurm_script}")
 
-        logging.info(f"Submitting {len(submitted_scripts)} MACE evaluation jobs and waiting...")
-        submitter.run_all_jobs()
+        # === Step 2: Submit ONLY current iteration jobs ===
+        submitter = Filesubmit(job_dir=self.output_dir)
 
+        # Dynamically override _find_slurm_scripts to limit to current iteration
+        submitter._find_slurm_scripts = lambda: sorted([
+            os.path.join(self.output_dir, f)
+            for f in os.listdir(self.output_dir)
+            if f.endswith(".slurm") and iter_tag in f
+        ])
+
+        logging.info(f"Submitting SLURM jobs for {iter_tag} and waiting for completion...")
+        submitter.run_all_jobs(max_concurrent=4, sleep_interval=30)
 
 
     def create_slurm_script(self, template_name, output_path, input_file, output_file, model_path):
