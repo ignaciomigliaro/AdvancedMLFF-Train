@@ -139,7 +139,7 @@ class ActiveLearning:
             atoms_list = self.mace_calc.load_evaluated_results(fname)
             all_atoms_lists.append(atoms_list)
 
-        return all_atoms_lists
+        return all_atoms_lists, len(all_atoms_lists[0])
 
 
     def sample_top_deviation_structures(self, atoms_list, std_devs):
@@ -341,6 +341,34 @@ class ActiveLearning:
             strict=True
         )
 
+    def get_last_completed_iteration(self):
+        """
+        Returns the last iteration index for which evaluated MACE inference files exist.
+        """
+        max_checked = 50  # Hard cap to avoid scanning forever
+        for i in range(1, max_checked):
+            all_exist = True
+            for model_idx in range(self.mace_calc.num_models):
+                fname = f"evaluated_eval_input_iter_{i}_model_{model_idx}.xyz"
+                fpath = os.path.join(self.mace_calc.output_dir, fname)
+                if not os.path.exists(fpath):
+                    all_exist = False
+                    break
+            if not all_exist:
+                return i - 1  # Previous iteration was the last completed
+        return max_checked  # Fallback
+
+    def dft_outputs_exist(self, iteration, num_expected):
+        """
+        Check whether expected DFT output files exist for a given iteration.
+        """
+        dft_suffix = ".out" if self.dft_software == "orca" else ".pw.out"
+        matched = 0
+        for fname in os.listdir(self.output_dir):
+            if fname.startswith(f"iter_{iteration}_") and fname.endswith(dft_suffix):
+                matched += 1
+        return matched >= num_expected
+
     def run(self, max_iterations=10):
         """
         Executes the Active Learning pipeline iteratively.
@@ -352,21 +380,27 @@ class ActiveLearning:
         # === Load initial dataset ===
         sampled_atoms, remaining_atoms = self.load_data()
 
-        for iteration in range(1, max_iterations + 1):
-            logging.info(f"\nActive Learning Iteration {iteration}/{max_iterations}")
+        start_iter = self.get_last_completed_iteration() + 1 if self.use_cache else 1
+        if start_iter > max_iterations:
+            logging.info(f"All {max_iterations} iterations already completed. Exiting.")
+            return
 
+        for iteration in range(start_iter, max_iterations + 1):
+            logging.info(f"\nActive Learning Iteration {iteration}/{max_iterations}")
 
             # === STEP 1: Decide what to sample ===
             if iteration == 1:
                 inference_candidates = sampled_atoms
             else:
-                inference_candidates,remaining_atoms = random_sampling(remaining_atoms,self.sample_percentage)
+                inference_candidates, remaining_atoms = random_sampling(remaining_atoms, self.sample_percentage)
                 if not inference_candidates:
                     logging.info("No remaining structures to sample. Ending AL loop.")
                     break
 
             # === STEP 2: Run SLURM-based MACE inference on candidates ===
-            sampled_atoms_model_lists = self.calculate_energies_forces(inference_candidates, iteration)
+            sampled_atoms_model_lists, num_candidates = self.calculate_energies_forces(
+                inference_candidates, iteration
+            )
 
             # === STEP 3: Calculate standard deviation (query by committee) ===
             std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms_model_lists)
@@ -391,9 +425,13 @@ class ActiveLearning:
 
             # These correspond to filtered_atoms_list
             sampled_for_dft, deferred = self.sample_top_deviation_structures(filtered_atoms_list, deviations)
+
             # === STEP 6: Run DFT on selected high-uncertainty structures ===
-            self.generate_dft_inputs(sampled_for_dft)
-            self.launch_dft_calcs()
+            if self.use_cache and self.dft_outputs_exist(iteration, len(sampled_for_dft)):
+                logging.info(f"[CACHE] Found all expected DFT outputs for iteration {iteration}. Skipping DFT.")
+            else:
+                self.generate_dft_inputs(sampled_for_dft, iteration)
+                self.launch_dft_calcs()
 
             # === STEP 7: Parse new DFT results and combine with training set ===
             new_atoms = self.parse_outputs()
