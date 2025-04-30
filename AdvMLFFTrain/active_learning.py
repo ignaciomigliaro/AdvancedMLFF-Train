@@ -38,7 +38,7 @@ class ActiveLearning:
         self.training_data = args.training_data_dir
         self.max_al_iter = args.max_al_iter
         self.dft_sampling = getattr(args, "dft_sampling", 100)
-        self.use_cache = args.use_cache.lower() == "true" if args.use_cache else False
+        self.use_cache = args.use_cache
 
         os.makedirs(self.output_dir, exist_ok=True)
 
