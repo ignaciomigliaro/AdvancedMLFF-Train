@@ -385,7 +385,6 @@ class ActiveLearning:
 
             # These correspond to filtered_atoms_list
             sampled_for_dft, deferred = self.sample_top_deviation_structures(filtered_atoms_list, deviations)
-
             # === STEP 6: Run DFT on selected high-uncertainty structures ===
             self.generate_dft_inputs(sampled_for_dft)
             self.launch_dft_calcs()
@@ -401,7 +400,9 @@ class ActiveLearning:
             self.mlff_train(all_atoms, iteration=iteration)
 
             # === STEP 9: Reload updated models ===
+            model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}", "models")
             self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
+            self.mace_calc.models = self.mace_calc.load_models(strict=(iteration > 1))
 
             # === STEP 10: Update active pools ===
             sampled_atoms += sampled_for_dft
