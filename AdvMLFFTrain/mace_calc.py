@@ -41,24 +41,27 @@ class MaceCalc:
         models = []
 
         if strict:
-            # Strict: only load model_n/model_n.model
+            # Strict: only load model_n/model_n_stagetwo.model
             for subfolder in sorted(os.listdir(self.model_dir)):
                 subfolder_path = os.path.join(self.model_dir, subfolder)
                 if os.path.isdir(subfolder_path) and subfolder.startswith("model_"):
-                    expected_file = f"{subfolder}.model"
+                    expected_file = f"{subfolder}_stagetwo.model"
                     full_model_path = os.path.join(subfolder_path, expected_file)
                     if os.path.exists(full_model_path):
                         models.append(full_model_path)
                     else:
-                        logging.warning(f"Expected model not found: {full_model_path}")
+                        logging.warning(f"Stage Two model not found: {full_model_path}")
         else:
-            # Loose: grab all .model files anywhere
+            # Loose: load all *_stagetwo.model files recursively
             for root, _, files in os.walk(self.model_dir):
                 for filename in files:
-                    if filename.endswith(".model"):
+                    if filename.endswith("_stagetwo.model"):
                         models.append(os.path.join(root, filename))
 
-        logging.info(f"Successfully loaded {len(models)} model(s) from {self.model_dir}.")
+        if not models:
+            logging.error(f"No MACE models found in {self.model_dir}. Check the directory path.")
+        else:
+            logging.info(f"Successfully loaded {len(models)} Stage Two model(s) from {self.model_dir}.")
         return models
 
     def calculate_energy_forces(self, atoms_list):
