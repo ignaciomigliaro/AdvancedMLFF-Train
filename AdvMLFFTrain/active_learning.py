@@ -53,7 +53,8 @@ class ActiveLearning:
         # **Initialize MACE calculator if selected**
         if self.calculator.lower() == "mace":
             # Initial loose loading of any available models
-            self.mace_calc = MaceCalc(self.args.model_dir, self.device, strict=False)
+            self.mace_calc = None
+
 
             # Ensure model directory exists
             if not os.path.isdir(self.args.model_dir):
@@ -374,7 +375,7 @@ class ActiveLearning:
         # === Load initial dataset ===
         sampled_atoms, remaining_atoms = self.load_data()
 
-        start_iter = self.get_last_completed_iteration() + 1 if self.use_cache else 1
+        start_iter = self.get_last_completed_iteration() + 1 if self.use_cache else 0
         if start_iter > max_iterations:
             logging.info(f"All {max_iterations} iterations already completed. Exiting.")
             return
