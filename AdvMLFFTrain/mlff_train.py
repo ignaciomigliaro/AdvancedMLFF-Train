@@ -31,7 +31,7 @@ class MLFFTrain:
         """
         Prepares training data and submits one or more MLFF training jobs.
         For multiple models, unique directories and config names are used.
-        
+
         Parameters:
         - n_models (int): Number of models to train (for committee/active learning)
         """
@@ -53,6 +53,26 @@ class MLFFTrain:
             job_id = self.submit_training_job(yaml_file)
             if job_id:
                 job_ids.append(job_id)
+
+        # Wait for SLURM jobs to finish (synchronously)
+        submitter = Filesubmit(job_dir=self.template_dir)
+        submitter.run_all_jobs()
+
+        # After SLURM job completion, validate expected model files
+        model_dir = os.path.join(self.output_dir, "models")
+        expected_models = [
+            os.path.join(model_dir, f"model_{i}", f"model_{i}_stagetwo.model")
+            for i in range(n_models)
+        ]
+        missing = [m for m in expected_models if not os.path.exists(m)]
+        if missing:
+            raise FileNotFoundError(
+                "Training completed but the following stage two model files are missing in Path: {model_dir}:\n" +
+                "\n".join(missing)
+            )
+        else:
+            logging.info(f"✅ All {n_models} stage two models successfully found in {model_dir}.")
+
 
 
     def _write_mace_xyz_split(self):
