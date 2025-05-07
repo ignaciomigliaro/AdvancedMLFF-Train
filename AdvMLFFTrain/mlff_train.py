@@ -54,25 +54,6 @@ class MLFFTrain:
             if job_id:
                 job_ids.append(job_id)
 
-        def wait_for_models(model_dir, num_models=1, timeout=900, check_interval=10):
-            logging.info(f"Waiting for {num_models} model(s) to appear in {model_dir}")
-            waited = 0
-            while waited < timeout:
-                found_models = []
-                if os.path.exists(model_dir):
-                    for root, dirs, files in os.walk(model_dir):
-                        found_models.extend([f for f in files if f.endswith(".model")])
-                if len(found_models) >= num_models:
-                    logging.info(f"✅ Found {len(found_models)} model file(s) in {model_dir}")
-                    return
-                time.sleep(check_interval)
-                waited += check_interval
-            raise TimeoutError(f"Timed out waiting for {num_models} model files in {model_dir}")
-
-        # Model dir path
-        model_dir = os.path.join(self.output_dir, "models")
-        wait_for_models(model_dir, num_models=n_models)
-
 
     def _write_mace_xyz_split(self):
         """
