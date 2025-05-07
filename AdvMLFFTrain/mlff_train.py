@@ -54,26 +54,36 @@ class MLFFTrain:
             if job_id:
                 job_ids.append(job_id)
 
-        # Wait for SLURM jobs to finish (synchronously)
+        # Wait for SLURM jobs to complete
         submitter = Filesubmit(job_dir=self.template_dir)
         submitter.run_all_jobs()
 
-        # After SLURM job completion, validate expected model files
+        # After jobs complete, retry-check for stage two models
         model_dir = os.path.join(self.output_dir, "models")
         expected_models = [
             os.path.join(model_dir, f"model_{i}", f"model_{i}_stagetwo.model")
             for i in range(n_models)
         ]
-        missing = [m for m in expected_models if not os.path.exists(m)]
-        if missing:
-            raise FileNotFoundError(
-                "Training completed but the following stage two model files are missing in Path: {model_dir}:\n" +
-                "\n".join(missing)
-            )
-        else:
-            logging.info(f"✅ All {n_models} stage two models successfully found in {model_dir}.")
 
+        max_attempts = 3
+        retry_wait = 120  # seconds
 
+        for attempt in range(1, max_attempts + 1):
+            missing = [m for m in expected_models if not os.path.exists(m)]
+            if not missing:
+                logging.info(f"✅ All {n_models} stage two models successfully found in {model_dir}.")
+                break
+            else:
+                if attempt < max_attempts:
+                    logging.warning(
+                        f"[Attempt {attempt}] Missing {len(missing)} model(s). Retrying in {retry_wait}s..."
+                    )
+                    time.sleep(retry_wait)
+                else:
+                    raise FileNotFoundError(
+                        "Training completed but the following stage two model files are still missing after multiple attempts:\n" +
+                        "\n".join(missing)
+                    )
 
     def _write_mace_xyz_split(self):
         """
