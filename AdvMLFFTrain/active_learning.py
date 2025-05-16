@@ -60,14 +60,7 @@ class ActiveLearning:
             if not os.path.isdir(self.args.model_dir):
                 raise ValueError(f"Model directory {self.args.model_dir} does not exist.")
 
-            # Require 3 models for active learning
-            if self.mace_calc.num_models < 3:
-                raise ValueError(
-                    f"Active Learning requires at least 3 MACE models, but only {self.mace_calc.num_models} were found in {self.args.model_dir}. "
-                    f"Check if the correct models are present."
-                )
-
-            logging.info(f"Initialized MACE calculator with {self.mace_calc.num_models} models from {self.args.model_dir}.")
+            
 
     def plot_std_dev_distribution(std_devs):
         """
@@ -384,23 +377,38 @@ class ActiveLearning:
             logging.info(f"\nActive Learning Iteration {iteration}/{max_iterations}")
 
             # === STEP 1: Decide what to sample ===
-            if iteration == 1:
-                inference_candidates = sampled_atoms
+            logging.info(f"***Running Step 1, sampling configurations for iteration {iteration}.***")
+            if iteration == 0:
+                 inference_candidates = sampled_atoms
+                 # Load initial models from args.model_dir, not the outputs directory
+                 model_dir = self.args.model_dir
+                 self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device,strict=False)
+                 if self.mace_calc.num_models < 3:
+                    raise ValueError(
+                    f"Active Learning requires at least 3 MACE models, but only {self.mace_calc.num_models} were found in {model_dir}. "
+                    f"Check if the correct models are present."
+        )
             else:
                 inference_candidates, remaining_atoms = random_sampling(remaining_atoms, self.sample_percentage)
+                trained_model_dir = os.path.join(self.output_dir, f"models_iter_{iteration-1}", "models")
+                self.mace_calc = MaceCalc(model_dir=trained_model_dir, device=self.device, strict=True)
+
                 if not inference_candidates:
                     logging.info("No remaining structures to sample. Ending AL loop.")
                     break
-
+            
             # === STEP 2: Run SLURM-based MACE inference on candidates ===
+            logging.info(f"***Running Step 2 , running Mace inference, for iteration {iteration}.***")
             sampled_atoms_model_lists, num_candidates = self.calculate_energies_forces(
                 inference_candidates, iteration
             )
 
             # === STEP 3: Calculate standard deviation (query by committee) ===
+            logging.info(f"Running Step 3 for iteration {iteration}.")
             std_dev, std_dev_forces = self.calculate_std_dev(sampled_atoms_model_lists)
 
             # === STEP 4: Filter high-uncertainty structures ===
+            logging.info(f"***Running Step 4,filtering high-uncertainty structures, for iteration {iteration}.***")
             filtered_atoms_list = self.filter_high_deviation_structures(
                 std_dev,
                 std_dev_forces,
@@ -413,6 +421,7 @@ class ActiveLearning:
                 break
 
             # === STEP 5: Sample top deviation structures BEFORE DFT ===
+            logging.info(f"***Running Step 5, sampling top deviation structures, for iteration {iteration}.***")
             if self.eval_criteria == "forces":
                 deviations = std_dev_forces
             else:
@@ -422,6 +431,7 @@ class ActiveLearning:
             sampled_for_dft, deferred = self.sample_top_deviation_structures(filtered_atoms_list, deviations)
 
             # === STEP 6: Run DFT on selected high-uncertainty structures ===
+            logging.info(f"***Running Step 6, running DFT calculations, for iteration {iteration}.***")
             if self.use_cache and self.dft_outputs_exist(iteration, len(sampled_for_dft)):
                 logging.info(f"[CACHE] Found all expected DFT outputs for iteration {iteration}. Skipping DFT.")
             else:
@@ -429,21 +439,19 @@ class ActiveLearning:
                 self.launch_dft_calcs()
 
             # === STEP 7: Parse new DFT results and combine with training set ===
+            logging.info(f"***Running Step 7, parsing DFT results, for iteration {iteration}.***")
             new_atoms = self.parse_outputs()
             logging.info(f"Parsed {len(new_atoms)} new DFT results.")
             training_atoms = self.parse_training_data()
             all_atoms = new_atoms + training_atoms
 
             # === STEP 8: Retrain MLFF models ===
+            logging.info(f"***Running Step 8, retraining MLFF models, for iteration {iteration}.***")
             model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}")
             self.mlff_train(all_atoms, iteration=iteration)
 
-            # === STEP 9: Reload updated models ===
-            model_dir = os.path.join(self.output_dir, f"models_iter_{iteration}", "models")
-            self.mace_calc = MaceCalc(model_dir=model_dir, device=self.device)
-            self.mace_calc.models = self.mace_calc.load_models(strict=(iteration > 1))
-
-            # === STEP 10: Update active pools ===
+            # === STEP 9: Update active pools ===
+            logging.info(f"***Running Step 9, updating active pools, for iteration {iteration}.***")
             sampled_atoms += sampled_for_dft
             remaining_atoms = [a for a in remaining_atoms if a not in sampled_for_dft]
             remaining_atoms += deferred  # Add non-sampled back to active pool
